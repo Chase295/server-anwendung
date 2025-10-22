@@ -1,0 +1,41 @@
+# ============================================================================
+# Development Dockerfile for Next.js Frontend
+# ============================================================================
+# Features:
+# - Hot-Reload mit Next.js Fast Refresh
+# - Volume-Mapping für Live-Updates
+# - Optimierte Layer-Caching
+# ============================================================================
+
+FROM node:18-alpine
+
+# Installiere curl für Health-Checks
+RUN apk add --no-cache curl
+
+# Arbeitsverzeichnis
+WORKDIR /app
+
+# Package-Dateien kopieren (für Dependency-Caching)
+COPY package*.json ./
+
+# Dependencies installieren (wird gecacht)
+# Verwende npm install statt npm ci für Entwicklung (funktioniert ohne package-lock.json)
+RUN npm install
+
+# Source-Code wird via Volume gemappt (siehe docker-compose.yml)
+# COPY src/ ./src/   # <- NICHT hier, sondern via Volume!
+
+# Config-Dateien kopieren
+COPY tsconfig.json ./
+COPY next.config.js ./
+COPY tailwind.config.js ./
+COPY postcss.config.js ./
+
+# Public-Ordner wird via Volume gemappt
+
+# Port freigeben
+EXPOSE 3001
+
+# Development-Server starten (mit Hot-Reload)
+CMD ["npm", "run", "dev"]
+

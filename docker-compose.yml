@@ -1,0 +1,170 @@
+services:
+  # ============================================================================
+  # MongoDB Database (Kern-Service)
+  # ============================================================================
+  mongodb:
+    image: mongo:latest
+    container_name: iot-orchestrator-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=iot-orchestrator
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # Backend Service (NestJS)
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: iot-orchestrator-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"    # HTTP API
+      - "8080:8080"    # WebSocket Server (ESP32)
+      - "8081:8081"    # WebSocket Server (WS-In-Nodes)
+      - "8082:8082"    # WebSocket Server (Debug Events - Frontend)
+      - "8083:8083"    # WebSocket Server (zusätzlich für Tests)
+      - "8084:8084"    # WebSocket Server (zusätzlich für Tests)
+      - "8085:8085"    # WebSocket Server (zusätzlich für Tests)
+      - "8086:8086"    # WebSocket Server (zusätzlich für Tests)
+      - "8087:8087"    # WebSocket Server (zusätzlich für Tests)
+      - "8088:8088"    # WebSocket Server (zusätzlich für Tests)
+      - "8089:8089"    # WebSocket Server (zusätzlich für Tests)
+      - "8090:8090"    # WebSocket Server (zusätzlich für Tests)
+    volumes:
+      # Live-Reload: Source-Code mappen
+      - ./backend/src:/app/src:delegated
+      - ./backend/package.json:/app/package.json:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+      - ./backend/nest-cli.json:/app/nest-cli.json:ro
+      # Logs-Verzeichnis mappen (damit Logs persistent sind und vom Host sichtbar)
+      - ./backend/logs:/app/logs
+      # node_modules NICHT mappen (Container-eigene Dependencies)
+      - backend_node_modules:/app/node_modules
+    environment:
+      # Server-Konfiguration
+      - NODE_ENV=development
+      - PORT=3000
+      - WS_PORT=8080
+      
+      # Logging
+      - FILE_LOGGING=true
+      - LOG_LEVEL=info
+      
+      # Frontend URL (für CORS)
+      - FRONTEND_URL=http://localhost:3001
+      
+      # MongoDB (INTERN via Container-Name)
+      - MONGODB_URI=mongodb://mongodb:27017/iot-orchestrator
+      
+      # JWT & Encryption
+      - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-dev-encryption-key-must-be-32-chars-long}
+      
+      # Proxy-Einstellungen
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      
+      # WICHTIG: Externe Services (Vosk, Piper, n8n) werden NICHT über .env
+      # konfiguriert, sondern über die Web-UI. Die URLs werden in MongoDB
+      # gespeichert und sind Teil der Node-Konfigurationen im Flow-Editor.
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - iot-network
+    command: npm run start:dev
+    # Extra Hosts für Linux (host.docker.internal Support)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/flows/schemas"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================================================
+  # Frontend Service (Next.js)
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: iot-orchestrator-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      # Live-Reload: Source-Code mappen
+      - ./frontend/src:/app/src:delegated
+      - ./frontend/public:/app/public:delegated
+      - ./frontend/package.json:/app/package.json:ro
+      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
+      - ./frontend/next.config.js:/app/next.config.js:ro
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js:ro
+      - ./frontend/postcss.config.js:/app/postcss.config.js:ro
+      # node_modules NICHT mappen
+      - frontend_node_modules:/app/node_modules
+      # Next.js Cache
+      - frontend_next_cache:/app/.next
+    environment:
+      # Next.js Port
+      - PORT=3001
+      
+      # Backend URLs (Container-intern für SSR, localhost für Browser)
+      - NEXT_PUBLIC_API_URL=http://localhost:3000/api
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8080
+      - NEXT_PUBLIC_DEBUG_WS_URL=ws://localhost:8082
+      
+      # Internal API URL (für Server-Side Rendering)
+      - INTERNAL_API_URL=http://backend:3000/api
+      - DOCKER_ENV=true
+    depends_on:
+      - backend
+    networks:
+      - iot-network
+    command: npm run dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  iot-network:
+    driver: bridge
+    name: iot-orchestrator-network
+
+# ============================================================================
+# Volumes (Persistente Daten)
+# ============================================================================
+volumes:
+  # MongoDB Daten (persistent)
+  mongodb_data:
+    name: iot-orchestrator-mongodb-data
+  
+  # Node Modules (Container-eigene Dependencies)
+  backend_node_modules:
+    name: iot-orchestrator-backend-node-modules
+  
+  frontend_node_modules:
+    name: iot-orchestrator-frontend-node-modules
+  
+  # Next.js Build Cache
+  frontend_next_cache:
+    name: iot-orchestrator-frontend-next-cache
+

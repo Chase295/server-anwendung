@@ -1,0 +1,156 @@
+# Nginx-Konfiguration für IoT & Voice Orchestrator
+# Diese Datei ist ein Beispiel für den Betrieb hinter einem Reverse Proxy
+
+# Upstream-Definitionen
+upstream backend_api {
+    server localhost:3000;
+    keepalive 64;
+}
+
+upstream backend_websocket {
+    server localhost:8080;
+    keepalive 64;
+}
+
+upstream frontend {
+    server localhost:3001;
+    keepalive 64;
+}
+
+# HTTP -> HTTPS Redirect (optional)
+server {
+    listen 80;
+    server_name your-domain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+# Haupt-Server-Block
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    # SSL-Zertifikate
+    ssl_certificate /path/to/your/fullchain.pem;
+    ssl_certificate_key /path/to/your/privkey.pem;
+    
+    # SSL-Konfiguration (empfohlen)
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # Sicherheits-Header
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+
+    # Logs
+    access_log /var/log/nginx/iot-orchestrator-access.log;
+    error_log /var/log/nginx/iot-orchestrator-error.log;
+
+    # Max Body Size (für große Audio-Uploads)
+    client_max_body_size 50M;
+
+    # Frontend (Next.js)
+    location / {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Backend API
+    location /api/ {
+        proxy_pass http://backend_api/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # WebSocket für ESP32-Clients
+    # WICHTIG: WebSocket-Header korrekt forwarden!
+    location /ws {
+        proxy_pass http://backend_websocket;
+        proxy_http_version 1.1;
+        
+        # WebSocket-spezifische Header (KRITISCH!)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeouts für WebSocket (längere Verbindungen)
+        proxy_connect_timeout 7d;
+        proxy_send_timeout 7d;
+        proxy_read_timeout 7d;
+        
+        # Buffering deaktivieren für WebSocket
+        proxy_buffering off;
+    }
+
+    # Health Check Endpoint
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}
+
+# Alternative: Einfache HTTP-Konfiguration (Development/Testing)
+# Ohne SSL - NICHT für Production verwenden!
+#
+# server {
+#     listen 80;
+#     server_name localhost;
+#
+#     location / {
+#         proxy_pass http://frontend;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection 'upgrade';
+#         proxy_set_header Host $host;
+#         proxy_cache_bypass $http_upgrade;
+#     }
+#
+#     location /api/ {
+#         proxy_pass http://backend_api/api/;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#     }
+#
+#     location /ws {
+#         proxy_pass http://backend_websocket;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection "upgrade";
+#         proxy_set_header Host $host;
+#         proxy_buffering off;
+#     }
+# }
+

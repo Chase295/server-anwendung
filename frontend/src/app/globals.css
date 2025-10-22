@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Variables für Light & Dark Mode */
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 249, 250, 251;
+  --background-end-rgb: 255, 255, 255;
+}
+
+.dark {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 17, 24, 39;
+  --background-end-rgb: 0, 0, 0;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+  min-height: 100vh;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* React Flow Styles - Light & Dark Mode */
+.react-flow__node {
+  @apply rounded-lg shadow-md border-2 bg-white dark:bg-gray-800;
+}
+
+.react-flow__node.selected {
+  @apply border-blue-500 dark:border-blue-400;
+}
+
+/* Node text color */
+.react-flow__node-default {
+  @apply text-gray-900 dark:text-white;
+}
+
+/* Handles (Connection Points) - Verbesserte Sichtbarkeit */
+.react-flow__handle {
+  @apply w-4 h-4 bg-gray-400 dark:bg-gray-500 border-2 border-white dark:border-gray-900 shadow-lg;
+}
+
+.react-flow__handle.source {
+  @apply bg-green-500 dark:bg-green-400 shadow-green-500/50 dark:shadow-green-400/50;
+}
+
+.react-flow__handle.target {
+  @apply bg-blue-500 dark:bg-blue-400 shadow-blue-500/50 dark:shadow-blue-400/50;
+}
+
+/* Handle Hover Effects - Komplett deaktiviert */
+.react-flow__handle {
+  transform-origin: center center !important;
+}
+
+.react-flow__handle:hover {
+  /* Keine Hover-Effekte - React Flow überschreibt alles */
+}
+
+/* React Flow Controls (Zoom, etc.) */
+.react-flow__controls {
+  @apply bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700;
+}
+
+.react-flow__controls button {
+  @apply bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300;
+}
+
+.react-flow__controls button:hover {
+  @apply bg-gray-50 dark:bg-gray-700;
+}
+
+/* MiniMap */
+.react-flow__minimap {
+  @apply bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700;
+}
+
+/* Edges (Connections) - Klickbare Verbindungen */
+.react-flow__edge {
+  cursor: pointer !important;
+  pointer-events: all !important;
+}
+
+.react-flow__edge path {
+  stroke: #94a3b8; /* gray-400 */
+  stroke-width: 2;
+  transition: stroke 0.2s ease-in-out, stroke-width 0.2s ease-in-out;
+}
+
+.dark .react-flow__edge path {
+  stroke: #6b7280; /* gray-500 in dark mode */
+}
+
+/* Größerer Klickbereich für Edges */
+.react-flow__edge-interaction {
+  stroke-width: 20 !important;
+  cursor: pointer !important;
+}
+
+.react-flow__edge:hover path {
+  stroke: #4b5563 !important; /* gray-600 */
+  stroke-width: 3;
+}
+
+.dark .react-flow__edge:hover path {
+  stroke: #9ca3af !important; /* gray-400 in dark mode */
+}
+
+/* Ausgewählte Edges - BLAU! */
+.react-flow__edge.selected path,
+.react-flow__edge.selected:focus path {
+  stroke: #3b82f6 !important; /* blue-500 */
+  stroke-width: 3 !important;
+}
+
+.dark .react-flow__edge.selected path,
+.dark .react-flow__edge.selected:focus path {
+  stroke: #60a5fa !important; /* blue-400 in dark mode */
+  stroke-width: 3 !important;
+}
+
+.react-flow__edge.selected:hover path {
+  stroke: #2563eb !important; /* blue-600 */
+  stroke-width: 3 !important;
+}
+
+.dark .react-flow__edge.selected:hover path {
+  stroke: #93c5fd !important; /* blue-300 in dark mode */
+  stroke-width: 3 !important;
+}
+
+/* Background Pattern */
+.react-flow__background {
+  @apply bg-gray-50 dark:bg-gray-900;
+}
+
+/* Toast Animation */
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Modal Scale In Animation */
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out;
+}

@@ -1,0 +1,287 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { X, TestTube, Loader2, Trash2 } from 'lucide-react';
+
+interface VoskServer {
+  _id: string;
+  name: string;
+  url: string;
+  description?: string;
+}
+
+interface EditVoskServerModalProps {
+  isOpen: boolean;
+  server: VoskServer | null;
+  onClose: () => void;
+  onSave: (serverId: string, data: { name: string; url: string; description?: string }) => Promise<void>;
+  onDelete: (serverId: string) => Promise<void>;
+}
+
+export default function EditVoskServerModal({ isOpen, server, onClose, onSave, onDelete }: EditVoskServerModalProps) {
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [description, setDescription] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Fülle Formular mit Server-Daten
+  useEffect(() => {
+    if (server) {
+      setName(server.name);
+      setUrl(server.url);
+      setDescription(server.description || '');
+      setTestResult(null);
+    }
+  }, [server]);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      if (!url.trim()) {
+        throw new Error('Bitte geben Sie eine Server-URL ein');
+      }
+      
+      if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
+        throw new Error('URL muss mit ws:// oder wss:// beginnen');
+      }
+
+      await testVoskWebSocket(url);
+
+      setTestResult({
+        success: true,
+        message: `✓ Verbindung zu ${url} erfolgreich!`,
+      });
+    } catch (error: any) {
+      console.error('Connection test failed:', error);
+      setTestResult({
+        success: false,
+        message: error.message || 'Verbindung fehlgeschlagen',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const testVoskWebSocket = (url: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      let ws: WebSocket | null = null;
+      
+      const timeout = setTimeout(() => {
+        if (ws) {
+          ws.close();
+        }
+        reject(new Error('Timeout: Server antwortet nicht innerhalb von 5 Sekunden'));
+      }, 5000);
+      
+      try {
+        ws = new WebSocket(url);
+
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          if (ws) {
+            ws.close();
+          }
+          resolve();
+        };
+
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error(`WebSocket-Fehler: Kann nicht zu ${url} verbinden. Ist der Server erreichbar?`));
+        };
+
+        ws.onclose = (event) => {
+          if (!event.wasClean && event.code !== 1000) {
+            clearTimeout(timeout);
+            reject(new Error(`Verbindung unerwartet geschlossen (Code: ${event.code})`));
+          }
+        };
+      } catch (error: any) {
+        clearTimeout(timeout);
+        reject(new Error(`Fehler beim Verbinden: ${error.message}`));
+      }
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!server || !name.trim() || !url.trim()) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave(server._id, { 
+        name: name.trim(), 
+        url: url.trim(), 
+        description: description.trim() || undefined 
+      });
+      
+      onClose();
+    } catch (error) {
+      console.error('Failed to update Vosk server:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!server) return;
+
+    if (!confirm(`Möchten Sie den Vosk-Server "${server.name}" wirklich löschen?\n\nDieser Vorgang kann nicht rückgängig gemacht werden.`)) {
+      return;
+    }
+
+    try {
+      await onDelete(server._id);
+      onClose();
+    } catch (error) {
+      console.error('Failed to delete Vosk server:', error);
+    }
+  };
+
+  if (!isOpen || !server) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            Vosk-Server bearbeiten
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="z.B. Vosk DE Production"
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+              required
+            />
+          </div>
+
+          {/* URL */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Server-URL <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="ws://localhost:2700"
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+              required
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Beschreibung (optional)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="z.B. Deutscher Vosk-Server mit kleinem Modell"
+              rows={2}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 resize-none"
+            />
+          </div>
+
+          {/* Test Button */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing || !url.trim()}
+              className="w-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 text-white px-4 py-3 rounded-lg disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center font-medium shadow-sm transition-colors"
+            >
+              {testing ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Teste Verbindung...
+                </>
+              ) : (
+                <>
+                  <TestTube className="w-5 h-5 mr-2" />
+                  Verbindung testen
+                </>
+              )}
+            </button>
+
+            {testResult && (
+              <div
+                className={`mt-3 p-4 rounded-lg border ${
+                  testResult.success
+                    ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
+                    : 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+                }`}
+              >
+                <p className="text-sm font-medium">{testResult.message}</p>
+              </div>
+            )}
+          </div>
+        </form>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between p-6 border-t border-gray-200 dark:border-gray-700">
+          {/* Delete Button (links) */}
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600 text-white rounded-lg transition-colors flex items-center"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Löschen
+          </button>
+
+          {/* Action Buttons (rechts) */}
+          <div className="flex items-center space-x-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={saving || !name.trim() || !url.trim()}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 text-white rounded-lg disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Speichern...
+                </>
+              ) : (
+                'Speichern'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

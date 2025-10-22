@@ -1,0 +1,50 @@
+# ============================================================================
+# Frontend .dockerignore
+# ============================================================================
+# Verhindert, dass unnötige Dateien in den Docker-Build-Context kopiert werden
+# ============================================================================
+
+# Node Modules (werden im Container installiert)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Next.js Build-Artefakte
+.next/
+out/
+
+# Environment-Dateien (werden via docker-compose.yml gesetzt)
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Tests
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Temporäre Dateien
+tmp/
+temp/
+*.tmp
+
+# Docker
+Dockerfile
+Dockerfile.*
+.dockerignore
+

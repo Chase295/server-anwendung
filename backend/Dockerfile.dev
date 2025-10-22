@@ -1,0 +1,37 @@
+# ============================================================================
+# Development Dockerfile for NestJS Backend
+# ============================================================================
+# Features:
+# - Hot-Reload mit ts-node-dev
+# - Volume-Mapping für Live-Updates
+# - Optimierte Layer-Caching für schnelle Rebuilds
+# ============================================================================
+
+FROM node:18-alpine
+
+# Installiere curl für Health-Checks
+RUN apk add --no-cache curl
+
+# Arbeitsverzeichnis
+WORKDIR /app
+
+# Package-Dateien kopieren (für Dependency-Caching)
+COPY package*.json ./
+
+# Dependencies installieren (wird gecacht, solange package.json gleich bleibt)
+# Verwende npm install statt npm ci für Entwicklung (funktioniert ohne package-lock.json)
+RUN npm install
+
+# Source-Code wird via Volume gemappt (siehe docker-compose.yml)
+# COPY src/ ./src/   # <- NICHT hier, sondern via Volume!
+
+# TypeScript Config und NestJS Config kopieren
+COPY tsconfig*.json ./
+COPY nest-cli.json ./
+
+# Port freigeben
+EXPOSE 3000 8080
+
+# Development-Server starten (mit Hot-Reload)
+CMD ["npm", "run", "start:dev"]
+
