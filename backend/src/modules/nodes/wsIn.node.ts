@@ -19,6 +19,12 @@ export class WSInNode extends BaseNode {
     awaitingPayload: boolean; 
     header: any;
   }> = new Map();
+  
+  // State für Raw Audio Mode (Session-ID pro Client)
+  private rawAudioSessions: Map<string, string> = new Map();
+  
+  // Vosk-Verbindungen für Raw Audio Mode (direkte WebSocket-Verbindungen)
+  private voskConnections: Map<string, WebSocket> = new Map();
 
   async start(): Promise<void> {
     // Stelle sicher dass alter Server geschlossen ist
@@ -68,6 +74,7 @@ export class WSInNode extends BaseNode {
         port,
         path,
         expectedType: this.config.dataType,
+        rawAudioMode: this.config.rawAudioMode || false,
       });
     } catch (error) {
       this.logger.error('Failed to start WSIn server', error.message, { nodeId: this.id });
@@ -121,6 +128,7 @@ export class WSInNode extends BaseNode {
     ws.on('close', () => {
       this.clients.delete(clientId);
       this.clientStates.delete(clientId); // State aufräumen
+      this.rawAudioSessions.delete(clientId); // Raw Audio Session aufräumen
       this.logger.info('WSIn client disconnected', {
         nodeId: this.id,
         clientId,
@@ -166,11 +174,105 @@ export class WSInNode extends BaseNode {
   }
 
   /**
-   * Behandelt eingehende Messages (USO-Protokoll: Header → Payload)
+   * Behandelt rohe Audio-Daten (Raw Audio Mode)
+   * Erstellt automatisch USO-Header für Audio-Daten
+   */
+  private handleRawAudio(clientId: string, data: WebSocket.Data): void {
+    try {
+      // Konvertiere zu Buffer
+      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
+      
+      // Hole oder erstelle Session-ID für diesen Client
+      let sessionId = this.rawAudioSessions.get(clientId);
+      if (!sessionId) {
+        sessionId = `raw_audio_${clientId}_${Date.now()}`;
+        this.rawAudioSessions.set(clientId, sessionId);
+        
+        this.logger.info('WSIn started new raw audio session', {
+          nodeId: this.id,
+          clientId,
+          sessionId,
+        });
+      }
+      
+      // Context nur hinzufügen wenn includeContext aktiviert ist (default: true)
+      const includeContext = this.config.includeContext !== false;
+      const contextData = includeContext ? this.enrichContextWithTime({}) : undefined;
+      
+      const uso = USOUtils.create('audio', this.id, buffer, false, {
+        id: sessionId,
+        audioMeta: {
+          sampleRate: this.config.sampleRate || 16000,
+          channels: this.config.channels || 1,
+          encoding: this.config.encoding || 'pcm_s16le',
+          bitDepth: 16,
+          format: 'int16',
+          endianness: 'little'
+        },
+        websocketInfo: {
+          connectionId: clientId,
+          clientIp: 'external',
+          connectedAt: Date.now(),
+        },
+        context: contextData, // Context nur wenn aktiviert
+      });
+
+      this.logger.debug('WSIn received raw audio', {
+        nodeId: this.id,
+        clientId,
+        bufferSize: buffer.length,
+        sessionId,
+        hasContext: !!contextData,
+      });
+
+      // USO an Flow weiterleiten
+      if (this.flowEmitter) {
+        this.logger.debug('🔄 WSIn emitting audio USO to flow', {
+          nodeId: this.id,
+          sessionId,
+          hasFlowEmitter: !!this.flowEmitter,
+        });
+        this.emitOutput(this.flowEmitter, uso);
+      } else {
+        this.logger.warn('⚠️ WSIn has no flowEmitter, cannot emit audio', {
+          nodeId: this.id,
+          sessionId,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error handling raw audio', error.message, {
+        nodeId: this.id,
+        clientId,
+      });
+    }
+  }
+
+  /**
+   * Behandelt eingehende Messages (USO-Protokoll: Header → Payload ODER Raw Audio Mode)
    */
   private handleMessage(clientId: string, data: WebSocket.Data): void {
     try {
       const clientState = this.clientStates.get(clientId) || { awaitingPayload: false, header: null };
+      
+      // Prüfe ob Raw Audio Mode aktiviert ist
+      const rawAudioMode = this.config.rawAudioMode === true;
+      const dataType = this.config.dataType || 'text';
+      
+      this.logger.debug('WSIn received message', {
+        nodeId: this.id,
+        clientId,
+        rawAudioMode,
+        dataType,
+        configRawAudioMode: this.config.rawAudioMode,
+        dataLength: Buffer.isBuffer(data) ? data.length : data.toString().length,
+      });
+      
+      // Prüfe ob Raw Audio Mode aktiviert ist UND Datentyp ist Audio
+      if (rawAudioMode && dataType === 'audio') {
+        // Raw Audio Mode: Direkte Audio-Daten ohne USO-Protokoll
+        this.handleRawAudio(clientId, data);
+        return;
+      }
       
       if (!clientState.awaitingPayload) {
         // Phase 1: Header empfangen
@@ -328,6 +430,7 @@ export class WSInNode extends BaseNode {
     });
     this.clients.clear();
     this.clientStates.clear(); // States aufräumen
+    this.rawAudioSessions.clear(); // Raw Audio Sessions aufräumen
 
     // Server schließen (WICHTIG: warten bis wirklich geschlossen!)
     if (this.wss) {

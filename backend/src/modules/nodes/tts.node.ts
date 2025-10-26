@@ -2,15 +2,19 @@ import { EventEmitter } from 'events';
 import { BaseNode } from '../../types/INode';
 import { UniversalStreamObject, USOUtils } from '../../types/USO';
 import { AppLogger } from '../../common/logger';
-import { PiperService } from '../services/piper.service';
+import { PiperService, PiperConnection } from '../services/piper.service';
 
 /**
  * TTSNode - Text-to-Speech Node
- * Konvertiert Text zu Audio mittels Piper
+ * Konvertiert Text zu Audio mittels Piper (WebSocket, wie piper_test.py)
  */
 export class TTSNode extends BaseNode {
   private readonly logger = new AppLogger('TTSNode');
   private piperService: PiperService;
+  private activeConnections: Map<string, PiperConnection> = new Map();
+  
+  // Buffer für Streaming-Text-Chunks (um zu vermeiden dass jeder kleine Chunk sofort zu Piper geht)
+  private textBuffers: Map<string, { text: string; timer: NodeJS.Timeout | null }> = new Map();
 
   constructor(id: string, type: string, config: Record<string, any>, piperService: PiperService) {
     super(id, type, config);
@@ -48,19 +52,31 @@ export class TTSNode extends BaseNode {
         return;
       }
 
-      this.logger.info('TTS processing text', {
+      // WICHTIG: Nur finale Ergebnisse verarbeiten (kein Streaming!)
+      if (!uso.header.final) {
+        this.logger.debug('TTS node ignoring non-final text (partial result)', {
+          nodeId: this.id,
+          sessionId: uso.header.id,
+          text: text.substring(0, 50),
+        });
+        return;
+      }
+
+      const sessionId = uso.header.id;
+      
+      this.logger.info('🎤 TTS processing FINAL text', {
         nodeId: this.id,
-        sessionId: uso.header.id,
+        sessionId,
         textLength: text.length,
         text: text.substring(0, 100),
       });
 
-      // Streaming-Modus oder Einzelsynthese
-      if (this.config.streamingMode && text.length > 200) {
-        await this.synthesizeStreaming(uso, text, emitter);
-      } else {
-        await this.synthesizeSingle(uso, text, emitter);
-      }
+      // Sende sofort an Piper
+      await this.sendTextToPiper(sessionId, text, emitter);
+
+      // Piper sendet automatisch Audio-Chunks über den Emitter
+      // Diese werden im connectToPiper Listener verarbeitet
+
     } catch (error) {
       this.logger.error('Error in TTS node processing', error.message, {
         nodeId: this.id,
@@ -72,113 +88,116 @@ export class TTSNode extends BaseNode {
   }
 
   /**
-   * Einzelne Synthese (ganzer Text auf einmal)
+   * Sendet Text an Piper (mit Connection-Handling)
    */
-  private async synthesizeSingle(
-    uso: UniversalStreamObject,
+  private async sendTextToPiper(
+    sessionId: string,
     text: string,
     emitter: EventEmitter
   ): Promise<void> {
-    try {
-      const audioBuffer = await this.piperService.synthesize(text, {
-        serviceUrl: this.config.serviceUrl || 'http://localhost:5000',
-        voiceModel: this.config.voiceModel || 'de_DE-thorsten-medium',
-        speakerId: this.config.speakerId,
-        lengthScale: this.config.lengthScale || 1.0,
-        noiseScale: this.config.noiseScale || 0.667,
-        noiseW: this.config.noiseW || 0.8,
-        sampleRate: this.config.sampleRate || 22050,
-      });
+    // Piper-Verbindung holen oder erstellen
+    let connection = this.activeConnections.get(sessionId);
 
-      // Audio-USO erstellen
-      const audioUso = USOUtils.create('audio', this.id, audioBuffer, true, {
-        id: uso.header.id,
-        audioMeta: {
-          sampleRate: this.config.sampleRate || 22050,
-          channels: 1,
-          encoding: 'pcm_s16le',
-          bitDepth: 16,
-        },
-      });
-
-      this.emitOutput(emitter, audioUso);
-
-      this.logger.info('TTS synthesis completed', {
-        nodeId: this.id,
-        sessionId: uso.header.id,
-        audioSize: audioBuffer.length,
-      });
-    } catch (error) {
-      throw new Error(`TTS synthesis failed: ${error.message}`);
+    if (!connection) {
+      connection = await this.connectToPiper(sessionId, emitter);
+      this.activeConnections.set(sessionId, connection);
     }
+
+    // Text an Piper senden
+    await this.piperService.sendText(sessionId, text);
+
+    this.logger.debug('Text sent to Piper', {
+      nodeId: this.id,
+      sessionId,
+      textLength: text.length,
+    });
   }
 
   /**
-   * Streaming-Synthese (Text in Chunks)
+   * Verbindet mit Piper-Server und setzt Event-Listener auf
    */
-  private async synthesizeStreaming(
-    uso: UniversalStreamObject,
-    text: string,
-    emitter: EventEmitter
-  ): Promise<void> {
+  private async connectToPiper(sessionId: string, emitter: EventEmitter): Promise<PiperConnection> {
     try {
-      let chunkIndex = 0;
-
-      await this.piperService.synthesizeStreaming(
-        text,
-        {
-          serviceUrl: this.config.serviceUrl || 'http://localhost:5000',
-          voiceModel: this.config.voiceModel || 'de_DE-thorsten-medium',
-          speakerId: this.config.speakerId,
-          lengthScale: this.config.lengthScale || 1.0,
-          noiseScale: this.config.noiseScale || 0.667,
-          noiseW: this.config.noiseW || 0.8,
-          sampleRate: this.config.sampleRate || 22050,
-        },
-        (audioChunk: Buffer) => {
-          chunkIndex++;
-          const isLast = false; // Wird im letzten Chunk gesetzt
-
-          // Audio-USO für Chunk erstellen
-          const audioUso = USOUtils.create('audio', this.id, audioChunk, isLast, {
-            id: uso.header.id,
-            audioMeta: {
-              sampleRate: this.config.sampleRate || 22050,
-              channels: 1,
-              encoding: 'pcm_s16le',
-              bitDepth: 16,
-            },
-          });
-
-          this.emitOutput(emitter, audioUso);
-
-          this.logger.debug('TTS chunk emitted', {
-            nodeId: this.id,
-            sessionId: uso.header.id,
-            chunkIndex,
-            chunkSize: audioChunk.length,
-          });
-        }
-      );
-
-      // Finales leeres USO senden um Stream abzuschließen
-      const finalUso = USOUtils.create('audio', this.id, Buffer.alloc(0), true, {
-        id: uso.header.id,
+      const connection = await this.piperService.connect(sessionId, {
+        serviceUrl: this.config.serviceUrl || 'ws://localhost:5002',
       });
-      this.emitOutput(emitter, finalUso);
 
-      this.logger.info('TTS streaming completed', {
-        nodeId: this.id,
-        sessionId: uso.header.id,
-        totalChunks: chunkIndex,
+      // Event-Listener für Audio-Chunks
+      connection.emitter.on('audio', (audioChunk: Buffer) => {
+        this.logger.debug('Piper audio chunk received', {
+          nodeId: this.id,
+          sessionId,
+          chunkSize: audioChunk.length,
+        });
+
+        // Audio-USO erstellen (16kHz, 16-bit PCM mono, wie piper_test.py)
+        const audioUso = USOUtils.create('audio', this.id, audioChunk, false, {
+          id: sessionId,
+          audioMeta: {
+            sampleRate: 16000, // Piper gibt 16kHz aus (wie piper_test.py)
+            channels: 1,
+            encoding: 'pcm_s16le',
+            bitDepth: 16,
+            format: 'raw',
+            endianness: 'little',
+          },
+        });
+
+        this.emitOutput(emitter, audioUso);
       });
+
+      connection.emitter.on('close', () => {
+        this.activeConnections.delete(sessionId);
+        this.logger.info('Piper connection closed', { nodeId: this.id, sessionId });
+        
+        // Finales USO senden um Stream abzuschließen
+        const finalUso = USOUtils.create('audio', this.id, Buffer.alloc(0), true, {
+          id: sessionId,
+          audioMeta: {
+            sampleRate: 16000,
+            channels: 1,
+            encoding: 'pcm_s16le',
+            bitDepth: 16,
+            format: 'raw',
+            endianness: 'little',
+          },
+        });
+
+        this.emitOutput(emitter, finalUso);
+
+        this.logger.info('✅ TTS synthesis completed', {
+          nodeId: this.id,
+          sessionId,
+        });
+      });
+
+      return connection;
     } catch (error) {
-      throw new Error(`TTS streaming failed: ${error.message}`);
+      this.logger.error('Failed to connect to Piper', error.message, {
+        nodeId: this.id,
+        sessionId,
+      });
+      throw error;
     }
   }
 
   async stop(): Promise<void> {
     this.isRunning = false;
+    
+    // Clear alle Timer
+    for (const [sessionId, buffer] of this.textBuffers) {
+      if (buffer.timer) {
+        clearTimeout(buffer.timer);
+      }
+    }
+    this.textBuffers.clear();
+    
+    // Schließe alle Verbindungen
+    for (const [sessionId, connection] of this.activeConnections) {
+      this.piperService.disconnect(sessionId);
+    }
+    this.activeConnections.clear();
+    
     this.logger.info('TTS node stopped', { nodeId: this.id });
   }
 
@@ -187,7 +206,7 @@ export class TTSNode extends BaseNode {
    */
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      const serviceUrl = this.config.serviceUrl || 'http://localhost:5000';
+      const serviceUrl = this.config.serviceUrl || 'ws://localhost:5002';
       return await this.piperService.testConnection(serviceUrl);
     } catch (error) {
       return {
@@ -208,4 +227,3 @@ export class TTSNode extends BaseNode {
     };
   }
 }
-

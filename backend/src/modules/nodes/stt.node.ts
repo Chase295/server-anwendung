@@ -12,6 +12,15 @@ export class STTNode extends BaseNode {
   private readonly logger = new AppLogger('STTNode');
   private voskService: VoskService;
   private activeConnections: Map<string, VoskConnection> = new Map();
+  
+  // Debouncing für finale Ergebnisse
+  private finalResultTimers: Map<string, NodeJS.Timeout> = new Map();
+  
+  // Speichert das letzte Partial-Ergebnis für jeden Session
+  private lastPartialResults: Map<string, string> = new Map();
+  
+  // Speichert das letzte gesendete finale Text-Ergebnis für jeden Session
+  private lastSentFinalText: Map<string, string> = new Map();
 
   constructor(id: string, type: string, config: Record<string, any>, voskService: VoskService) {
     super(id, type, config);
@@ -48,8 +57,17 @@ export class STTNode extends BaseNode {
         this.activeConnections.set(sessionId, connection);
       }
 
-      // Audio-Daten senden
+      // Audio-Daten senden (prüfe Audio-Format)
       if (Buffer.isBuffer(uso.payload) && uso.payload.length > 0) {
+        // Logge Audio-Metadaten für Debugging
+        this.logger.debug('Audio received for STT processing', {
+          nodeId: this.id,
+          sessionId,
+          bufferSize: uso.payload.length,
+          audioMeta: uso.header.audioMeta,
+          final: uso.header.final,
+        });
+
         await this.voskService.sendAudio(sessionId, uso.payload);
 
         this.logger.debug('Audio sent to Vosk', {
@@ -63,15 +81,19 @@ export class STTNode extends BaseNode {
       if (uso.header.final) {
         await this.voskService.finalize(sessionId);
         
-        // Warte kurz auf finale Ergebnisse
-        setTimeout(() => {
-          this.cleanup(sessionId);
-        }, 1000);
-
-        this.logger.info('STT processing finalized', {
+        this.logger.info('STT processing finalized - waiting for final result', {
           nodeId: this.id,
           sessionId,
         });
+
+        // Warte kurz auf finale Ergebnisse und cleanup
+        setTimeout(() => {
+          this.cleanup(sessionId);
+          this.logger.info('STT cleanup completed', {
+            nodeId: this.id,
+            sessionId,
+          });
+        }, 500); // Kurz warten auf Endergebnis
       }
     } catch (error) {
       this.logger.error('Error in STT node processing', error.message, {
@@ -96,61 +118,193 @@ export class STTNode extends BaseNode {
         serviceUrl: this.config.serviceUrl || 'ws://localhost:2700',
         sampleRate: this.config.sampleRate || 16000,
         language: this.config.language || 'de',
-        words: this.config.words || false,
+        words: this.config.words !== false, // Standard: true (wie vosk-mic-test.py)
       });
 
       // Event-Listener für Vosk-Ergebnisse
       connection.emitter.on('partial', (partialText: string) => {
-        if (this.config.emitPartialResults) {
-          // Partielle Ergebnisse als USO emittieren
-          const partialUso = USOUtils.create(
-            'text',
-            this.id,
-            partialText,
-            false,
-            {
-              id: sessionId,
-              speakerInfo: {
-                confidence: 0.5, // Partielle Ergebnisse haben niedrigere Confidence
-              },
-            }
-          );
-
-          this.emitOutput(emitter, partialUso);
-
-          this.logger.debug('Partial STT result', {
-            nodeId: this.id,
-            sessionId,
-            text: partialText.substring(0, 50),
-          });
-        }
-      });
-
-      connection.emitter.on('result', (result: { text: string; final: boolean; confidence: number }) => {
-        // Finales Ergebnis als USO emittieren
-        const textUso = USOUtils.create(
+        // Speichere letztes Partial-Ergebnis
+        this.lastPartialResults.set(sessionId, partialText);
+        
+        // IMMER partielle Ergebnisse emittieren (keine Prüfung!)
+        const partialUso = USOUtils.create(
           'text',
           this.id,
-          result.text,
-          result.final,
+          partialText,
+          false, // NICHT final
           {
             id: sessionId,
             speakerInfo: {
-              confidence: result.confidence,
-              language: this.config.language || 'de',
+              confidence: 0.5, // Partielle Ergebnisse haben niedrigere Confidence
             },
           }
         );
 
-        this.emitOutput(emitter, textUso);
+        this.emitOutput(emitter, partialUso);
 
-        this.logger.info('STT result', {
+        this.logger.info('STT partial result (live)', {
           nodeId: this.id,
           sessionId,
-          text: result.text,
-          confidence: result.confidence,
-          final: result.final,
+          text: partialText.substring(0, 50),
         });
+        
+        // Neuen Timer für finale Ergebnis setzen (2 Sekunden nach letztem Partial)
+        const debounceDelay = this.config.finalResultDebounceDelay || 2000;
+        
+        // Alten Timer löschen
+        if (this.finalResultTimers.has(sessionId)) {
+          clearTimeout(this.finalResultTimers.get(sessionId)!);
+        }
+        
+        // Neuen Timer setzen
+        const timer = setTimeout(() => {
+          const lastPartial = this.lastPartialResults.get(sessionId);
+          if (lastPartial) {
+            // Prüfe ob dieser Text bereits als final gesendet wurde
+            const lastSentText = this.lastSentFinalText.get(sessionId);
+            if (lastSentText === lastPartial) {
+              this.logger.debug('Final result already sent for this exact text, skipping', { 
+                sessionId, 
+                text: lastPartial.substring(0, 30) 
+              });
+              return;
+            }
+            
+            // Speichere den gesendeten Text
+            this.lastSentFinalText.set(sessionId, lastPartial);
+            
+            // Emittiere letztes Partial als FINALES Ergebnis
+            const finalUso = USOUtils.create(
+              'text',
+              this.id,
+              lastPartial,
+              true, // FINAL
+              {
+                id: sessionId,
+                speakerInfo: {
+                  confidence: 0.8, // Höhere Confidence für finale
+                },
+              }
+            );
+
+            this.emitOutput(emitter, finalUso);
+
+            this.logger.info('✅ STT FINAL result (from last partial with debounce)', {
+              nodeId: this.id,
+              sessionId,
+              text: lastPartial,
+              isFinal: true,
+              debounceDelay,
+            });
+            
+            // Cleanup
+            this.lastPartialResults.delete(sessionId);
+            this.finalResultTimers.delete(sessionId);
+            
+            // WICHTIG: Vosk-Verbindung nach finalem Ergebnis schließen
+            setTimeout(async () => {
+              try {
+                const conn = this.activeConnections.get(sessionId);
+                if (conn) {
+                  await this.voskService.finalize(sessionId);
+                  this.voskService.disconnect(sessionId);
+                  this.activeConnections.delete(sessionId);
+                  this.logger.info('✅ Vosk connection closed after final result', {
+                    nodeId: this.id,
+                    sessionId,
+                  });
+                }
+              } catch (error) {
+                this.logger.error('Error closing Vosk connection', error.message, { sessionId });
+              }
+            }, 500); // 500ms Verzögerung
+          }
+        }, debounceDelay);
+        
+        this.finalResultTimers.set(sessionId, timer);
+      });
+
+      connection.emitter.on('result', (result: { text: string; final: boolean; confidence: number; words?: any[] }) => {
+        // Prüfe ob dieser Text bereits gesendet wurde
+        const lastSentText = this.lastSentFinalText.get(sessionId);
+        if (lastSentText === result.text) {
+          this.logger.debug('Vosk result already sent for this exact text, skipping', { 
+            sessionId, 
+            text: result.text.substring(0, 30) 
+          });
+          return;
+        }
+        
+        // Speichere den gesendeten Text
+        this.lastSentFinalText.set(sessionId, result.text);
+        
+        // Finales Ergebnis mit DEBOUNCE-Delay (Standard: 2000ms) für KI-Nodes
+        const debounceDelay = this.config.finalResultDebounceDelay || 2000; // Standard: 2 Sekunden
+        
+        // Alten Timer löschen wenn vorhanden
+        if (this.finalResultTimers.has(sessionId)) {
+          clearTimeout(this.finalResultTimers.get(sessionId)!);
+        }
+        
+        // Neuen Timer setzen
+        const timer = setTimeout(() => {
+          const speakerInfo: any = {
+            confidence: result.confidence,
+            language: this.config.language || 'de',
+          };
+
+          // Wort-Details hinzufügen wenn vorhanden
+          if (result.words) {
+            speakerInfo.words = result.words;
+          }
+
+          const textUso = USOUtils.create(
+            'text',
+            this.id,
+            result.text,
+            true, // Finale Ergebnisse sind immer final
+            {
+              id: sessionId,
+              speakerInfo,
+            }
+          );
+
+          this.emitOutput(emitter, textUso);
+
+          this.logger.info('STT final result (debounced)', {
+            nodeId: this.id,
+            sessionId,
+            text: result.text,
+            confidence: result.confidence,
+            final: result.final,
+            wordCount: result.words ? result.words.length : 0,
+            debounceDelay,
+          });
+          
+          // Timer entfernen
+          this.finalResultTimers.delete(sessionId);
+          
+          // WICHTIG: Vosk-Verbindung nach finalem Ergebnis schließen
+          setTimeout(async () => {
+            try {
+              const conn = this.activeConnections.get(sessionId);
+              if (conn) {
+                await this.voskService.finalize(sessionId);
+                this.voskService.disconnect(sessionId);
+                this.activeConnections.delete(sessionId);
+                this.logger.info('✅ Vosk connection closed after final result (from result event)', {
+                  nodeId: this.id,
+                  sessionId,
+                });
+              }
+            } catch (error) {
+              this.logger.error('Error closing Vosk connection', error.message, { sessionId });
+            }
+          }, 500); // 500ms Verzögerung
+        }, debounceDelay);
+        
+        // Timer speichern
+        this.finalResultTimers.set(sessionId, timer);
       });
 
       connection.emitter.on('close', () => {
@@ -172,11 +326,23 @@ export class STTNode extends BaseNode {
    * Cleanup für Session
    */
   private cleanup(sessionId: string): void {
+    // Timer löschen falls vorhanden
+    if (this.finalResultTimers.has(sessionId)) {
+      clearTimeout(this.finalResultTimers.get(sessionId)!);
+      this.finalResultTimers.delete(sessionId);
+    }
+    
     this.voskService.disconnect(sessionId);
     this.activeConnections.delete(sessionId);
   }
 
   async stop(): Promise<void> {
+    // Alle Timer löschen
+    this.finalResultTimers.forEach((timer) => {
+      clearTimeout(timer);
+    });
+    this.finalResultTimers.clear();
+    
     // Alle Verbindungen schließen
     this.activeConnections.forEach((_, sessionId) => {
       this.voskService.disconnect(sessionId);

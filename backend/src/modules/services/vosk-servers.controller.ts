@@ -71,8 +71,32 @@ export class VoskServersController {
   }
 
   /**
+   * POST /api/vosk-servers/test-connection
+   * Testet die Verbindung zu einer Vosk-Server-URL (ohne Speicherung)
+   */
+  @Post('test-connection')
+  async testConnection(@Body() body: { url: string }) {
+    try {
+      this.logger.info('Testing Vosk server connection', { url: body.url });
+
+      // Teste Verbindung
+      const result = await this.voskService.testConnection(body.url);
+
+      this.logger.info('Vosk server test completed', { 
+        url: body.url,
+        success: result.success 
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error('Vosk server test failed', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * POST /api/vosk-servers/:id/test
-   * Testet die Verbindung zu einem Vosk-Server
+   * Testet die Verbindung zu einem Vosk-Server (mit ID)
    */
   @Post(':id/test')
   async testServer(@Param('id') id: string) {

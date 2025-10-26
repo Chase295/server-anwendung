@@ -392,6 +392,52 @@ export default function TTSNodeConfig({ config, onChange }: TTSNodeConfigProps) 
             </label>
           </div>
 
+          {/* Buffer Timeout */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Buffer Timeout (ms)
+            </label>
+            <input
+              type="number"
+              value={config.bufferTimeout ?? 500}
+              onChange={(e) => onChange('bufferTimeout', parseInt(e.target.value))}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              min="50"
+              max="2000"
+              step="50"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+              Wartezeit zum Sammeln von Text-Chunks (Standard: 500ms)
+              <br />
+              <span className="text-orange-600 dark:text-orange-400">
+                💡 Größer = Weniger Stottern, aber mehr Verzögerung
+              </span>
+            </p>
+          </div>
+
+          {/* Min Buffer Size */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Min Buffer Size (Zeichen)
+            </label>
+            <input
+              type="number"
+              value={config.minBufferSize ?? 20}
+              onChange={(e) => onChange('minBufferSize', parseInt(e.target.value))}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              min="5"
+              max="100"
+              step="5"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+              Mindestgröße bevor Text an Piper gesendet wird (Standard: 20 Zeichen)
+              <br />
+              <span className="text-orange-600 dark:text-orange-400">
+                💡 Größer = Weniger Stottern, aber mehr Verzögerung
+              </span>
+            </p>
+          </div>
+
           {/* Erweiterte Einstellungen */}
           <details className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
             <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">

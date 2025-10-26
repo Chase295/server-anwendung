@@ -194,6 +194,16 @@ export default function EventPanel({ events, isConnected, onClearEvents, flowId 
                         <span className={`font-medium ${getTypeColor(event.uso.header.type)}`}>
                           {event.uso.header.type.toUpperCase()}
                         </span>
+                        {event.isFinal === false && (
+                          <span className="text-orange-600 dark:text-orange-400 font-bold animate-pulse">
+                            [LIVE]
+                          </span>
+                        )}
+                        {event.isFinal === true && (
+                          <span className="text-green-600 dark:text-green-400 font-bold bg-green-100 dark:bg-green-900 px-1 rounded">
+                            [FINAL]
+                          </span>
+                        )}
                         <span className="text-gray-900 dark:text-white font-medium">
                           {event.nodeLabel || event.nodeId}
                         </span>

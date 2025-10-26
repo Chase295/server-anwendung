@@ -51,6 +51,8 @@ export interface USO_Header {
     channels: number;
     encoding: string;            // z.B. 'pcm_s16le', 'opus'
     bitDepth?: number;
+    format?: string;             // z.B. 'int16', 'float32'
+    endianness?: string;        // z.B. 'little', 'big'
   };
 }
 

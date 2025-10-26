@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { X, TestTube, Loader2 } from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface AddVoskServerModalProps {
   isOpen: boolean;
@@ -31,63 +32,32 @@ export default function AddVoskServerModal({ isOpen, onClose, onAdd }: AddVoskSe
         throw new Error('URL muss mit ws:// oder wss:// beginnen');
       }
 
-      // Teste WebSocket-Verbindung direkt
-      await testVoskWebSocket(url);
-
-      setTestResult({
-        success: true,
-        message: `✓ Verbindung zu ${url} erfolgreich!`,
-      });
+      // Teste über Backend-API (kein Mixed-Content-Problem!)
+      const response = await api.post('/vosk-servers/test-connection', { url });
+      
+      if (response.data.success) {
+        setTestResult({
+          success: true,
+          message: `✓ Verbindung zu ${url} erfolgreich!`,
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: response.data.message || 'Verbindung fehlgeschlagen',
+        });
+      }
     } catch (error: any) {
       console.error('Connection test failed:', error);
+      const message = error.response?.data?.message || error.message || 'Verbindung fehlgeschlagen';
       setTestResult({
         success: false,
-        message: error.message || 'Verbindung fehlgeschlagen',
+        message,
       });
     } finally {
       setTesting(false);
     }
   };
 
-  const testVoskWebSocket = (url: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      let ws: WebSocket | null = null;
-      
-      const timeout = setTimeout(() => {
-        if (ws) {
-          ws.close();
-        }
-        reject(new Error('Timeout: Server antwortet nicht innerhalb von 5 Sekunden'));
-      }, 5000);
-      
-      try {
-        ws = new WebSocket(url);
-
-        ws.onopen = () => {
-          clearTimeout(timeout);
-          if (ws) {
-            ws.close();
-          }
-          resolve();
-        };
-
-        ws.onerror = () => {
-          clearTimeout(timeout);
-          reject(new Error(`WebSocket-Fehler: Kann nicht zu ${url} verbinden. Ist der Server erreichbar?`));
-        };
-
-        ws.onclose = (event) => {
-          if (!event.wasClean && event.code !== 1000) {
-            clearTimeout(timeout);
-            reject(new Error(`Verbindung unerwartet geschlossen (Code: ${event.code})`));
-          }
-        };
-      } catch (error: any) {
-        clearTimeout(timeout);
-        reject(new Error(`Fehler beim Verbinden: ${error.message}`));
-      }
-    });
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,6 +132,9 @@ export default function AddVoskServerModal({ isOpen, onClose, onAdd }: AddVoskSe
               className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
               required
             />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Die Verbindung wird über das Backend getestet (keine Mixed-Content-Probleme).
+            </p>
           </div>
 
           {/* Description */}

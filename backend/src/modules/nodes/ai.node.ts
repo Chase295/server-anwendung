@@ -68,6 +68,16 @@ export class AINode extends BaseNode {
         return;
       }
 
+      // WICHTIG: Nur finale Ergebnisse an Flowise senden (ignoriere partielle!)
+      if (!uso.header.final) {
+        this.logger.debug('AI node ignoring non-final text (partial result)', {
+          nodeId: this.id,
+          sessionId: uso.header.id,
+          text: uso.payload.toString().substring(0, 50),
+        });
+        return;
+      }
+
       const text = uso.payload.toString();
 
       if (!text || text.trim().length === 0) {

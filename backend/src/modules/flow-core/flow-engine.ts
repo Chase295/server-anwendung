@@ -88,24 +88,6 @@ export class FlowEngine implements OnModuleInit {
         });
       }
 
-      // WICHTIG: Für Entry-Nodes (keine eingehenden Edges) den emitter setzen
-      // Diese Nodes haben keine process()-Aufrufe, brauchen aber den emitter
-      const entryNodeIds = this.findEntryNodes({
-        id: flowId,
-        definition: flowDefinition,
-        nodes,
-        edges: flowDefinition.edges,
-        startedAt: Date.now(),
-      });
-
-      for (const nodeId of entryNodeIds) {
-        const node = nodes.get(nodeId) as any;
-        if (node && typeof node.setFlowEmitter === 'function') {
-          node.setFlowEmitter(this.eventEmitter);
-          this.logger.debug('Set flow emitter for entry node', { flowId, nodeId });
-        }
-      }
-
       // Flow-Instanz erstellen
       const flowInstance: FlowInstance = {
         id: flowId,
@@ -114,6 +96,35 @@ export class FlowEngine implements OnModuleInit {
         edges: flowDefinition.edges,
         startedAt: Date.now(),
       };
+
+      // WICHTIG: Für Entry-Nodes (keine eingehenden Edges) den emitter setzen
+      // Diese Nodes haben keine process()-Aufrufe, brauchen aber den emitter
+      const entryNodeIds = this.findEntryNodes(flowInstance);
+      
+      this.logger.info('🎯 Found entry nodes', { 
+        flowId, 
+        entryNodeIds, 
+        entryCount: entryNodeIds.length 
+      });
+
+      for (const nodeId of entryNodeIds) {
+        const node = nodes.get(nodeId) as any;
+        if (node && typeof node.setFlowEmitter === 'function') {
+          node.setFlowEmitter(this.eventEmitter);
+          this.logger.info('✅ Set flow emitter for entry node', { 
+            flowId, 
+            nodeId,
+            nodeType: node.type 
+          });
+        } else {
+          this.logger.warn('⚠️ Entry node missing setFlowEmitter', { 
+            flowId, 
+            nodeId,
+            hasNode: !!node,
+            hasMethod: node && typeof node.setFlowEmitter === 'function'
+          });
+        }
+      }
 
       this.activeFlows.set(flowId, flowInstance);
 

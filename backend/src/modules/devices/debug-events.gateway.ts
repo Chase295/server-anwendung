@@ -14,6 +14,8 @@ export class DebugEventsGateway implements OnModuleInit, OnModuleDestroy {
   private server: http.Server;
   private clients: Set<WebSocket> = new Set();
   private latestHealthStatus: Map<string, HealthStatusEvent> = new Map(); // nodeId -> Health Status
+  private eventCache: DebugEvent[] = []; // Cache für Debug-Events (HTTP-Zugriff)
+  private readonly maxCachedEvents = 200;
 
   async onModuleInit() {
     const port = parseInt(process.env.DEBUG_EVENTS_PORT || '8082', 10);
@@ -129,6 +131,12 @@ export class DebugEventsGateway implements OnModuleInit, OnModuleDestroy {
    * Sendet ein Debug-Event an alle verbundenen Frontend-Clients
    */
   broadcastDebugEvent(event: DebugEvent): void {
+    // Cache Event für HTTP-Zugriff
+    this.eventCache.unshift(event);
+    if (this.eventCache.length > this.maxCachedEvents) {
+      this.eventCache = this.eventCache.slice(0, this.maxCachedEvents);
+    }
+
     const message = JSON.stringify({
       type: 'debug:event',
       event,
@@ -149,6 +157,25 @@ export class DebugEventsGateway implements OnModuleInit, OnModuleDestroy {
         nodeId: event.nodeId,
       });
     }
+  }
+
+  /**
+   * Holt gecachte Debug-Events für HTTP-Zugriff
+   */
+  getCachedEvents(flowId?: string, since?: number): DebugEvent[] {
+    let events = this.eventCache;
+    
+    // Filter nach flowId
+    if (flowId) {
+      events = events.filter(e => e.flowId === flowId);
+    }
+    
+    // Filter nach Zeit
+    if (since) {
+      events = events.filter(e => e.timestamp >= since);
+    }
+    
+    return events;
   }
 
   /**

@@ -97,6 +97,7 @@ export class DebugNode extends BaseNode {
       emitter.emit('debug:log', {
         nodeId: this.id,
         timestamp: Date.now(),
+        isFinal: uso.header.final, // Final-Flag für Frontend
         uso: {
           header: uso.header,
           payloadType: typeof uso.payload,

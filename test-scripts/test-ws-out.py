@@ -27,7 +27,7 @@ from datetime import datetime
 # KONFIGURATION - HIER ANPASSEN
 # ======================================
 WS_HOST = "0.0.0.0"  # 0.0.0.0 = lauscht auf allen Interfaces
-WS_PORT = 8084
+WS_PORT = 8091
 WS_PATH = "/endpoint"
 
 # ======================================

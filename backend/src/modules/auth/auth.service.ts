@@ -126,9 +126,20 @@ export class AuthService implements OnModuleInit {
 
   /**
    * Client-Secret-Authentifizierung für ESP32-Clients
+   * Unterstützt jetzt:
+   * 1. Globaler API_KEY aus .env (SIMPLE_API_KEY)
+   * 2. Device-spezifische Secrets (client_secret_${clientId})
    */
   async validateClientSecret(clientId: string, secret: string): Promise<boolean> {
     try {
+      // 1. Prüfe globalen API Key (für einfache Nutzung)
+      const globalApiKey = process.env.SIMPLE_API_KEY;
+      if (globalApiKey && secret === globalApiKey) {
+        this.logger.info('Client authenticated with global API key', { clientId });
+        return true;
+      }
+      
+      // 2. Prüfe device-spezifisches Secret
       const secretKey = `client_secret_${clientId}`;
       const storedSecret = await this.getSecret(secretKey);
       

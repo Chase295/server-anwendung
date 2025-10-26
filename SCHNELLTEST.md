@@ -42,8 +42,10 @@ http://localhost:3001
    - **Label:** `Debug_Output`
 
 **Verbindung erstellen:**
-- Verbinde den **Output-Handle** (rechts) von `WS_Test`
-- Mit dem **Input-Handle** (links) von `Debug_Output`
+- Verbinde den **Output-Handle** (rechts) von `WS_Test`  
+  mit dem **Input-Handle** (links) von `Debug_Output`
+- Ein roter Rand zeigt eine ungültige Verbindung an
+- Der Rand wird grün wenn die Verbindung korrekt ist
 
 ### Schritt 4: Flow speichern und starten
 1. Klicke oben auf **"Speichern"**
@@ -87,6 +89,8 @@ Nachricht:
 
 **Neu:** Das Script verwendet **Context-Informationen** aus dem Script selbst!
 Diese werden automatisch bei allen Nachrichten mitgesendet und sind im **Debug Events Panel** sichtbar.
+
+**Wichtig:** Öffnen Sie das **Event-Panel** rechts im Flow-Editor (Klick auf "Events" Tab) um die gesendeten Nachrichten live zu sehen!
 
 **Anpassen:** Öffne `test-ws-in.py` und ändere die Werte:
 ```python

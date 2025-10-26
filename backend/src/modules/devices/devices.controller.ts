@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common';
 import { DevicesService } from './devices.service';
 import { WebSocketGateway } from './websocket.gateway';
+import { DebugEventsGateway } from './debug-events.gateway';
 import { AppLogger } from '../../common/logger';
 
 /**
@@ -13,6 +14,7 @@ export class DevicesController {
   constructor(
     private readonly devicesService: DevicesService,
     private readonly wsGateway: WebSocketGateway,
+    private readonly debugEventsGateway: DebugEventsGateway,
   ) {}
 
   @Get()
@@ -25,6 +27,18 @@ export class DevicesController {
       ...(device as any).toObject(),
       isConnected: connectedClients.some(c => c.clientId === device.clientId),
     }));
+  }
+
+  /**
+   * GET /api/devices/debug-events
+   * Holt Debug-Events (gecacht für HTTP-Zugriff)
+   * WICHTIG: Muss vor @Get(':clientId') stehen!
+   */
+  @Get('debug-events')
+  getDebugEvents(@Query('flowId') flowId?: string, @Query('since') since?: string) {
+    const sinceTime = since ? parseInt(since, 10) : undefined;
+    const events = this.debugEventsGateway.getCachedEvents(flowId, sinceTime);
+    return { events };
   }
 
   @Get(':clientId')

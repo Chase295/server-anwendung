@@ -357,7 +357,7 @@ export default function STTNodeConfig({ config, onChange }: STTNodeConfigProps) 
             <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
-                checked={config.emitPartialResults || false}
+                checked={config.emitPartialResults !== false}
                 onChange={(e) => onChange('emitPartialResults', e.target.checked)}
                 className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:focus:ring-blue-400"
               />
@@ -366,10 +366,33 @@ export default function STTNodeConfig({ config, onChange }: STTNodeConfigProps) 
                   Partielle Ergebnisse ausgeben
                 </span>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  Sendet Zwischenergebnisse während der Erkennung
+                  Sendet Zwischenergebnisse während der Erkennung (Live-Preview)
                 </p>
               </div>
             </label>
+          </div>
+          
+          {/* Finaler Ergebnis Debounce-Delay */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Finaler Ergebnis Debounce (ms)
+            </label>
+            <input
+              type="number"
+              value={config.finalResultDebounceDelay || 1000}
+              onChange={(e) => onChange('finalResultDebounceDelay', parseInt(e.target.value))}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              min="0"
+              max="5000"
+              step="100"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+              Verzögerung für finale Ergebnisse (0-5000ms, Standard: 1000ms)
+              <br />
+              <span className="text-orange-600 dark:text-orange-400">
+                💡 1000ms = 1 Sek Pause bis finaler Text gesendet wird
+              </span>
+            </p>
           </div>
         </div>
       )}

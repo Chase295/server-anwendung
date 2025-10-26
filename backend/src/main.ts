@@ -73,12 +73,26 @@ async function bootstrap() {
   }
 
   // CORS aktivieren
-  const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:3001';
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : [process.env.FRONTEND_URL || 'http://localhost:3001'];
+  
   app.enableCors({
-    origin: corsOrigin,
+    origin: allowedOrigins.length === 1
+      ? allowedOrigins[0]
+      : (origin, callback) => {
+          // Wenn keine Origin vorhanden (z.B. Postman, Server-to-Server), erlauben
+          if (!origin) {
+            return callback(null, true);
+          }
+          if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+          }
+          return callback(new Error('Not allowed by CORS'));
+        },
     credentials: true,
   });
-  globalLogger.info(`  ✓ CORS enabled for: ${corsOrigin}`);
+  globalLogger.info(`  ✓ CORS enabled for: ${allowedOrigins.join(', ')}`);
 
   // Validation Pipe
   app.useGlobalPipes(
@@ -110,7 +124,7 @@ async function bootstrap() {
   globalLogger.info('═══════════════════════════════════════════════════════════');
   globalLogger.info(`📡 HTTP/API Server:    http://localhost:${port}/api`);
   globalLogger.info(`🔌 WebSocket Server:   ws://localhost:${wsPort}`);
-  globalLogger.info(`🌐 Frontend URL:       ${corsOrigin}`);
+  globalLogger.info(`🌐 Allowed Origins:    ${allowedOrigins.join(', ')}`);
   globalLogger.info(`🔐 Encryption:         ${process.env.ENCRYPTION_KEY ? 'Enabled' : '⚠️  Default key (not secure!)'}`);
   globalLogger.info(`🗄️  MongoDB:            ${process.env.MONGODB_URI || 'mongodb://localhost:27017/iot-orchestrator'}`);
   globalLogger.info('═══════════════════════════════════════════════════════════');

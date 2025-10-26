@@ -685,6 +685,70 @@ export default function SettingsPage() {
           </form>
         </div>
 
+        {/* Global API Key Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <Key className="w-6 h-6 text-green-700 dark:text-green-300" />
+            <div className="flex-1">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Globaler API Key</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Ein API Key für alle Devices - Einfach & Sicher
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Aktueller Key anzeigen */}
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Aktueller API Key</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Dieser Key wird von allen Device-Clients verwendet
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <code className="px-3 py-2 bg-gray-900 dark:bg-gray-950 text-green-400 rounded-md font-mono text-sm">
+                    default-api-key-123
+                  </code>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">(Standard)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Info Box */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <Settings className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200">Wie ändere ich den API Key?</h3>
+                  <p className="text-sm text-blue-800 dark:text-blue-300 mt-1">
+                    Bearbeiten Sie die <code className="bg-blue-100 dark:bg-blue-900/40 px-1 py-0.5 rounded text-xs">docker-compose.yml</code> Datei
+                    und setzen Sie <code className="bg-blue-100 dark:bg-blue-900/40 px-1 py-0.5 rounded text-xs">SIMPLE_API_KEY=ihr-neuer-key</code>.
+                    Dann starten Sie das Backend neu: <code className="bg-blue-100 dark:bg-blue-900/40 px-1 py-0.5 rounded text-xs">docker-compose restart backend</code>.
+                  </p>
+                  <p className="text-xs text-blue-700 dark:text-blue-400 mt-2">
+                    💡 Alternative: Ändern Sie den Key direkt in <code className="bg-blue-100 dark:bg-blue-900/40 px-1 py-0.5 rounded text-xs">device-client.py</code> (Zeile 56).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Device Client Konfiguration */}
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Device Client verwenden</h3>
+              <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <p>1. Öffnen Sie <code className="bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded text-xs">test-scripts/device-client.py</code></p>
+                <p>2. Ändern Sie Zeile 56: <code className="bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded text-xs">API_KEY = "ihr-api-key"</code></p>
+                <p>3. Starten Sie den Client: <code className="bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded text-xs">python3 device-client.py</code></p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  ✅ Der Key funktioniert für alle Devices - keine weitere Konfiguration nötig!
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Flowise Server Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
           <div className="flex justify-between items-center mb-6">

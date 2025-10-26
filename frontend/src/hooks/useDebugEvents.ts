@@ -6,6 +6,7 @@ export interface DebugEvent {
   nodeId: string;
   nodeLabel?: string;
   timestamp: number;
+  isFinal?: boolean;
   uso: {
     header: any;
     payloadType: string;
@@ -26,168 +27,105 @@ export interface HealthStatusEvent {
   timestamp: number;
 }
 
-interface DebugEventMessage {
-  type: string;
-  event?: DebugEvent | HealthStatusEvent;
-  timestamp: number;
-  message?: string;
-}
-
 export function useDebugEvents(flowId?: string) {
   const [events, setEvents] = useState<DebugEvent[]>([]);
   const [nodeHealthStatus, setNodeHealthStatus] = useState<Map<string, HealthStatusEvent>>(new Map());
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const pollingIntervalRef = useRef<NodeJS.Timeout>();
   const flowIdRef = useRef<string | undefined>(flowId);
-  const maxEvents = 50; // Maximale Anzahl der Events
+  const maxEvents = 50;
+  const seenEventIds = useRef<Set<number>>(new Set());
 
-  // flowId im Ref speichern, um es in Event-Handlern zu verwenden
   useEffect(() => {
     flowIdRef.current = flowId;
   }, [flowId]);
 
-  const connect = useCallback(() => {
-    // Verhindere mehrfache Verbindungen
-    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
-      console.log('[DebugEvents] Already connected/connecting, skipping');
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
       return;
     }
 
-    try {
-      // WebSocket URL (Port 8082 für Debug Events)
-      const wsUrl = process.env.NEXT_PUBLIC_DEBUG_WS_URL || 'ws://localhost:8082';
-      
-      console.log('[DebugEvents] Connecting to:', wsUrl);
-      
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('[DebugEvents] Connected');
-        setIsConnected(true);
-        setError(null);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message: DebugEventMessage = JSON.parse(event.data);
-          
-          if (message.type === 'welcome') {
-            console.log('[DebugEvents]', message.message);
-            return;
-          }
-
-          if (message.type === 'debug:event' && message.event) {
-            const debugEvent = message.event as DebugEvent;
-            
-            // Filter nach flowId wenn angegeben (verwende flowIdRef)
-            const currentFlowId = flowIdRef.current;
-            if (currentFlowId && debugEvent.flowId !== currentFlowId) {
-              return;
-            }
-
-            setEvents((prev) => {
-              const newEvents = [debugEvent, ...prev];
-              // Limitiere auf maxEvents
-              return newEvents.slice(0, maxEvents);
-            });
-          }
-
-          if (message.type === 'health:status' && message.event) {
-            const healthEvent = message.event as HealthStatusEvent;
-            
-            // Filter nach flowId wenn angegeben
-            const currentFlowId = flowIdRef.current;
-            if (currentFlowId && healthEvent.flowId !== currentFlowId) {
-              return;
-            }
-
-            // Aktualisiere Health-Status für diese Node
-            setNodeHealthStatus((prev) => {
-              const newMap = new Map(prev);
-              newMap.set(healthEvent.nodeId, healthEvent);
-              return newMap;
-            });
-
-            console.log('[DebugEvents] Health status updated:', {
-              nodeId: healthEvent.nodeId,
-              status: healthEvent.status,
-              connectedClients: healthEvent.connectedClients,
-            });
-          }
-        } catch (err) {
-          console.error('[DebugEvents] Error parsing message:', err);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('[DebugEvents] WebSocket error:', error);
-        setError('WebSocket-Verbindungsfehler');
-      };
-
-      ws.onclose = () => {
-        console.log('[DebugEvents] Disconnected');
-        setIsConnected(false);
+    console.log('[DebugEvents] Starting HTTP polling (no WebSocket, no Nginx changes needed)');
+    setError(null);
+    
+    const poll = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+        const since = Date.now() - 60000; // Letzte Minute
+        const currentFlowId = flowIdRef.current;
         
-        // Nur reconnecten wenn wsRef noch gesetzt ist (nicht durch disconnect() aufgerufen)
-        if (wsRef.current === ws) {
-          wsRef.current = null;
+        // Hole Debug-Events vom Backend (gecacht)
+        const response = await fetch(
+          `${apiUrl}/devices/debug-events?flowId=${currentFlowId || ''}&since=${since}`
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          setIsConnected(true);
           
-          // Auto-Reconnect nach 3 Sekunden
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('[DebugEvents] Attempting to reconnect...');
-            connect();
-          }, 3000);
+          if (data.events && Array.isArray(data.events)) {
+            data.events.forEach((event: DebugEvent) => {
+              // Nur neue Events hinzufügen
+              if (!seenEventIds.current.has(event.timestamp)) {
+                seenEventIds.current.add(event.timestamp);
+                
+                setEvents((prev) => {
+                  // Prüfe ob Event bereits existiert
+                  const exists = prev.some(e => 
+                    e.nodeId === event.nodeId && 
+                    e.timestamp === event.timestamp &&
+                    e.uso.payloadPreview === event.uso.payloadPreview
+                  );
+                  
+                  if (exists) return prev;
+                  
+                  const newEvents = [event, ...prev];
+                  return newEvents.slice(0, maxEvents);
+                });
+              }
+            });
+          }
         }
-      };
-    } catch (err) {
-      console.error('[DebugEvents] Connection error:', err);
-      setError('Fehler beim Verbinden');
-    }
-  }, []); // Keine Dependencies - verwende flowIdRef stattdessen
+      } catch (err) {
+        console.warn('[DebugEvents] Polling error (will retry):', err);
+        setError(null); // Kein sichtbarer Fehler
+      }
+    };
+
+    // Initial poll
+    poll();
+    
+    // Poll every 2 seconds
+    pollingIntervalRef.current = setInterval(poll, 2000);
+  }, [maxEvents]);
 
   const disconnect = useCallback(() => {
     console.log('[DebugEvents] Disconnecting...');
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = undefined;
-    }
-    if (wsRef.current) {
-      // Entferne Event-Handler vor dem Schließen
-      wsRef.current.onopen = null;
-      wsRef.current.onmessage = null;
-      wsRef.current.onerror = null;
-      wsRef.current.onclose = null;
-      
-      if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
-        wsRef.current.close();
-      }
-      wsRef.current = null;
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = undefined;
     }
     setIsConnected(false);
+    seenEventIds.current.clear();
   }, []);
 
   const clearEvents = useCallback(() => {
     setEvents([]);
+    seenEventIds.current.clear();
   }, []);
 
-  // Auto-Connect beim Mount (nur einmal!)
-  useEffect(() => {
-    // Verhindere mehrfache Verbindungen
-    if (wsRef.current) {
-      console.log('[DebugEvents] Already connected, skipping connect');
-      return;
-    }
+  const connect = useCallback(() => {
+    startPolling();
+  }, [startPolling]);
 
+  useEffect(() => {
     connect();
 
     return () => {
       disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Nur beim Mount, nicht bei connect/disconnect Änderungen!
+  }, [connect, disconnect]);
 
   return {
     events,
@@ -198,4 +136,3 @@ export function useDebugEvents(flowId?: string) {
     reconnect: connect,
   };
 }
-

@@ -28,10 +28,11 @@ Eine zentrale, visuelle Anwendung (ähnlich Node-RED) zur Orchestrierung von IoT
 - ✅ **Toast-Benachrichtigungen** - Moderne Benachrichtigungen statt Browser-Popups
 - ✅ **Confirm-Dialoge** - Elegante Bestätigungsdialoge für kritische Aktionen
 - ✅ **Debug Events System** - Live-Monitoring aller Debug-Node-Ausgaben im Flow-Editor
-  - WebSocket-basierte Echtzeit-Events (Port 8082)
+  - HTTP-Polling basiert (keine Nginx-Konfiguration nötig!)
   - 3 Ansichtsmodi: Kompakt, Detailliert, JSON
   - Filterung nach Datentyp, Flow-spezifisch
   - Vollständige Text-Preview und Context-Anzeige
+  - Automatische Event-Caching im Backend
 - ✅ **Context-Informationen** - Metadaten-System für personalisierte KI-Interaktionen
   - Zeit (automatisch), Person, Location, Client-Name in jedem USO
   - Konfigurierbare Weitergabe pro WS_In Node (aktiviert/deaktiviert)
@@ -109,7 +110,7 @@ Eine zentrale, visuelle Anwendung (ähnlich Node-RED) zur Orchestrierung von IoT
 | **3001** | Frontend | Next.js Web-UI | HTTP |
 | **8080** | WebSocket (Devices) | ESP32-Clients, Bidirektionale Kommunikation | WebSocket |
 | **8081+** | WS_In Nodes | Externe WebSocket-Eingänge (konfigurierbar pro Node) | WebSocket |
-| **8082** | Debug Events | Live Debug-Events für Frontend | WebSocket |
+| **8082** | Debug Events | Live Debug-Events für Frontend (intern) | HTTP |
 | **27017** | MongoDB | Datenbank (nur intern in Docker) | MongoDB Protocol |
 
 ## 🚀 Quick Start
@@ -167,18 +168,21 @@ docker-compose up -d --build
 - **[SCHNELLTEST.md](SCHNELLTEST.md)** - Schneller Test mit Python-Script
 
 ### Technische Dokumentation
-- **[STREAMING_GUIDE.md](STREAMING_GUIDE.md)** ⭐ **NEU!** - Komplette Anleitung für Echtzeit AI-Streaming
+- **[STREAMING_GUIDE.md](STREAMING_GUIDE.md)** ⭐ - Komplette Anleitung für Echtzeit AI-Streaming
 - **[DEBUG_EVENTS_GUIDE.md](DEBUG_EVENTS_GUIDE.md)** ⭐ - Vollständige Erklärung des Debug Events Systems
 - **[FLOW_STATUS_MANAGEMENT.md](FLOW_STATUS_MANAGEMENT.md)** ⭐ - Flow-Status-Synchronisation im Detail
 - **[CONTEXT_MANAGEMENT.md](CONTEXT_MANAGEMENT.md)** ⭐ - Context-Informationen & Weitergabe-Option
-- **[TEST_SCRIPTS_README.md](TEST_SCRIPTS_README.md)** - WebSocket Test-Scripts
+- **[test-scripts/README.md](test-scripts/README.md)** - Komplette Test-Scripts Übersicht
+- **[test-scripts/TEST_SCRIPTS_README_AUDIO.md](test-scripts/TEST_SCRIPTS_README_AUDIO.md)** ⭐ - Audio-Test-Scripts
+- **[test-scripts/VOSK_TEST_README.md](test-scripts/VOSK_TEST_README.md)** - Vosk-Server Test-Anleitung
+- **[test-scripts/TROUBLESHOOTING.md](test-scripts/TROUBLESHOOTING.md)** - Fehlerbehebungsanleitung
 - **[NODES.md](NODES.md)** - Alle verfügbaren Nodes (Basis-Dokumentation)
 - **[SERVICES.md](SERVICES.md)** - Externe Services (Vosk, Piper, Flowise)
-- **[DEBUG_EVENTS.md](DEBUG_EVENTS.md)** - Debug Events System (Original-Dokumentation)
 
 ### Setup & Deployment
+- **[SETUP.md](SETUP.md)** ⭐ **NEU!** - Komplette Setup-Anleitung (lokal + Reverse Proxy)
 - **[DOCKER.md](DOCKER.md)** - Docker Compose Setup & Production
-- **[MIGRATION_WEB_UI_CONFIG.md](MIGRATION_WEB_UI_CONFIG.md)** - Migration von .env zu Web-UI
+- **[nginx.conf.example](nginx.conf.example)** - Nginx Reverse Proxy Konfiguration
 
 ### Backend & Frontend
 - **[backend/README.md](backend/README.md)** - NestJS Backend Dokumentation

@@ -76,9 +76,10 @@ export class FlowiseService {
   ): Promise<FlowiseResponse> {
     try {
       this.logger.info('Sending request to Flowise', {
-        apiUrl: config.apiUrl.substring(0, 50) + '...',
+        apiUrl: config.apiUrl,
         questionLength: question.length,
         sessionId,
+        questionPreview: question.substring(0, 100) + (question.length > 100 ? '...' : ''),
       });
 
       const startTime = Date.now();
@@ -93,6 +94,12 @@ export class FlowiseService {
         payload.sessionId = sessionId;
       }
 
+      this.logger.info('📤 Flowise REQUEST payload', {
+        sessionId,
+        question,
+        hasSessionId: !!payload.sessionId,
+      });
+
       // HTTP POST an Flowise
       const response = await this.axiosInstance.post(config.apiUrl, payload, {
         headers: {
@@ -102,14 +109,23 @@ export class FlowiseService {
 
       const duration = Date.now() - startTime;
 
-      this.logger.info('Flowise response received', {
+      this.logger.info('📥 Flowise RESPONSE received', {
         sessionId,
         duration: `${duration}ms`,
         status: response.status,
+        responseData: JSON.stringify(response.data).substring(0, 500),
       });
 
       // Parse Response
-      return this.parseResponse(response.data);
+      const parsedResponse = this.parseResponse(response.data);
+      
+      this.logger.info('📥 Flowise RESPONSE parsed', {
+        sessionId,
+        text: parsedResponse.text,
+        textLength: parsedResponse.text?.length || 0,
+      });
+
+      return parsedResponse;
     } catch (error) {
       this.logger.error('Flowise request error', error.message, {
         apiUrl: config.apiUrl.substring(0, 50) + '...',
@@ -138,9 +154,10 @@ export class FlowiseService {
   ): Promise<void> {
     try {
       this.logger.info('Starting streaming request to Flowise', {
-        apiUrl: config.apiUrl.substring(0, 50) + '...',
+        apiUrl: config.apiUrl,
         questionLength: question.length,
         sessionId,
+        questionPreview: question.substring(0, 100) + (question.length > 100 ? '...' : ''),
       });
 
       // Prepare payload für Flowise mit streaming: true
@@ -153,6 +170,13 @@ export class FlowiseService {
       if (sessionId) {
         payload.sessionId = sessionId;
       }
+
+      this.logger.info('📤 Flowise STREAMING REQUEST payload', {
+        sessionId,
+        question,
+        hasSessionId: !!payload.sessionId,
+        streaming: true,
+      });
 
       // HTTP POST an Flowise mit responseType: 'stream'
       const response = await this.axiosInstance.post(config.apiUrl, payload, {
@@ -196,6 +220,12 @@ export class FlowiseService {
             let actualEvent = event;
             let actualData = data;
 
+            this.logger.debug('📥 Flowise RAW event received', {
+              sessionId,
+              originalEvent: event,
+              dataPreview: typeof data === 'string' ? data.substring(0, 100) : typeof data,
+            });
+
             // Prüfe ob data ein JSON-String mit verschachteltem Event ist
             if (event === 'message') {
               try {
@@ -203,9 +233,13 @@ export class FlowiseService {
                 if (nested.event && nested.data !== undefined) {
                   actualEvent = nested.event;
                   actualData = nested.data;
-                  this.logger.debug('Parsed nested Flowise event', { 
+                  this.logger.debug('✅ Parsed nested Flowise event', { 
+                    sessionId,
+                    originalEvent: event,
                     actualEvent, 
-                    dataLength: typeof actualData === 'string' ? actualData.length : 0 
+                    dataType: typeof actualData,
+                    dataLength: typeof actualData === 'string' ? actualData.length : 0,
+                    dataPreview: typeof actualData === 'string' ? actualData.substring(0, 50) : typeof actualData,
                   });
                 }
               } catch (e) {
@@ -222,6 +256,11 @@ export class FlowiseService {
               case 'token':
                 // Einzelner Token vom Stream
                 fullText += actualData;
+                this.logger.debug('📥 Flowise STREAMING token received', {
+                  sessionId,
+                  token: actualData,
+                  fullTextLength: fullText.length,
+                });
                 chunkCallback(actualData, actualEvent);
                 break;
 
@@ -285,8 +324,14 @@ export class FlowiseService {
         this.logger.info('Flowise stream ended', { sessionId, totalLength: fullText.length });
       });
 
-      response.data.on('error', (error: Error) => {
-        this.logger.error('Flowise streaming connection error', error.message, { sessionId });
+      response.data.on('error', (error: any) => {
+        // Ignoriere "aborted" Fehler (kann passieren wenn Stream beendet wird)
+        if (error.message === 'aborted' || error.code === 'ECONNRESET') {
+          this.logger.warn('Flowise stream aborted (normal)', { sessionId, code: error.code });
+          return; // Nicht als Fehler behandeln
+        }
+        
+        this.logger.error('Flowise streaming connection error', error.message, { sessionId, code: error.code });
         throw error;
       });
 
@@ -296,7 +341,13 @@ export class FlowiseService {
         response.data.on('error', reject);
       });
 
-    } catch (error) {
+    } catch (error: any) {
+      // Ignoriere "aborted" Fehler (normal wenn Stream beendet wird)
+      if (error.message === 'aborted' || error.code === 'ECONNRESET') {
+        this.logger.warn('Flowise stream aborted normally', { sessionId });
+        return; // Nicht als Fehler behandeln
+      }
+      
       this.logger.error('Flowise streaming request failed', error.message, {
         apiUrl: config.apiUrl.substring(0, 50) + '...',
         sessionId,

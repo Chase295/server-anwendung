@@ -236,18 +236,31 @@ export function useDebugEvents(flowId?: string) {
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 DebugEventsGateway (Port 8082)              │
-│  - WebSocket-Server für Frontend                            │
+│  - WebSocket-Server für interne Clients                     │
+│  - Event-Cache für HTTP-Zugriff (max. 200 Events)          │
 │  - Broadcast an alle verbundenen Clients                    │
 └────────────────────────────┬────────────────────────────────┘
                              │
-                             │ WebSocket Message
-                             │ { type: 'debug:event', event: {...} }
+                             │ DebugEvent
+                             │ (im Cache gespeichert)
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   HTTP Endpoint                             │
+│  GET /api/devices/debug-events                              │
+│  - Liefert gecachte Events per HTTP                         │
+│  - Filter nach flowId, since (Zeitstempel)                  │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             │ HTTP Response
+                             │ { events: [...] }
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Frontend (Browser)                        │
 │  useDebugEvents Hook → EventPanel Component                 │
-│  - Verbindet zu ws://localhost:8082                         │
+│  - HTTP-Polling alle 2 Sekunden                            │
+│  - Keine Nginx-Config nötig!                                │
 │  - Empfängt Events in Echtzeit                              │
 │  - Zeigt Events in 3 Modi an (Kompakt, Detailliert, JSON)  │
 └─────────────────────────────────────────────────────────────┘
@@ -260,7 +273,7 @@ export function useDebugEvents(flowId?: string) {
 | **Backend HTTP/API** | 3000 | REST API für Flows, Devices, etc. | Frontend → Backend |
 | **WebSocket (Devices)** | 8080 | ESP32-Clients, Bidirektionale Kommunikation | ESP32 → Backend |
 | **WS_In Nodes** | 8081+ | Externe WebSocket-Eingänge | Python/Clients → WS_In Node |
-| **Debug Events** | 8082 | Live Debug-Events für Frontend | Backend → Frontend |
+| **Debug Events** | 8082 | Live Debug-Events (intern) | HTTP Polling (kein externes Config nötig) |
 | **Frontend** | 3001 | Next.js Web-UI | Browser → Frontend |
 
 ---
@@ -630,10 +643,11 @@ function MyComponent() {
 ```
 
 **Features:**
-- ✅ Automatische Verbindung zu ws://localhost:8082
-- ✅ Auto-Reconnect bei Verbindungsabbruch
+- ✅ HTTP-Polling alle 2 Sekunden (keine Nginx-Konfiguration nötig!)
+- ✅ Automatischer Event-Cache (max. 200 Events im Backend)
 - ✅ Filterung nach Flow-ID
-- ✅ Event-Limit (50 Events)
+- ✅ Event-Limit (50 Events im Frontend)
+- ✅ Verbindungsstatus-Anzeige
 - ✅ Sauberes Cleanup beim Unmount
 
 ### EventPanel Component

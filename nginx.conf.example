@@ -112,6 +112,10 @@ server {
         proxy_buffering off;
     }
 
+    # Debug Events
+    # HINWEIS: Debug-Events funktionieren über HTTP-Polling via /api/devices/debug-events
+    # KEINE zusätzliche Nginx-Route nötig! Funktioniert mit der /api/ Route oben.
+
     # Health Check Endpoint
     location /health {
         access_log off;

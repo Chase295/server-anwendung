@@ -192,11 +192,58 @@ export class WebSocketGateway implements OnModuleInit, OnModuleDestroy {
       // Phase 2: Binär-Frame = Audio-Payload
       else if (Buffer.isBuffer(data)) {
         if (!client.lastUSOHeader) {
-          this.logger.warn('Binary data received without header', { clientId: client.clientId });
+          // RAW Audio Mode: Erstelle automatisch USO-Header (wie WS In Node)
+          if (!client.rawAudioSessionId) {
+            client.rawAudioSessionId = `raw_audio_${client.id}_${Date.now()}`;
+            client.rawAudioChunkCount = 0;
+            this.logger.info('Started raw audio session for device', {
+              clientId: client.clientId,
+              sessionId: client.rawAudioSessionId,
+            });
+          }
+          
+          // Erstelle automatisch Header
+          const autoHeader: USO_Header = {
+            id: client.rawAudioSessionId!,
+            type: 'audio',
+            sourceId: client.clientId,  // WICHTIG: clientId als sourceId
+            timestamp: Date.now(),
+            final: false,
+            audioMeta: {
+              sampleRate: 16000,
+              channels: 1,
+              encoding: 'pcm_s16le',
+              bitDepth: 16,
+              format: 'int16',
+              endianness: 'little',
+            },
+            websocketInfo: {
+              connectionId: client.id,
+              clientIp: client.ws['_socket']?.remoteAddress || 'unknown',
+              connectedAt: client.connectedAt,
+            },
+          };
+
+          // USO mit auto-generiertem Header
+          const uso = {
+            header: autoHeader,
+            payload: data,
+          };
+
+          client.rawAudioChunkCount!++;
+          
+          this.logger.debug('Raw audio received (auto-generated USO)', {
+            clientId: client.clientId,
+            sessionId: client.rawAudioSessionId,
+            payloadSize: data.length,
+            chunkCount: client.rawAudioChunkCount,
+          });
+
+          this.eventEmitter.emit('uso:received', uso, client);
           return;
         }
 
-        // USO mit Header und Binär-Payload erstellen
+        // Normales USO-Protokoll: Header vorhanden
         const uso = {
           header: client.lastUSOHeader,
           payload: data,
@@ -345,5 +392,7 @@ interface ClientConnection {
   lastHeartbeat: number;
   lastUSOHeader: USO_Header | null;
   isAlive: boolean;
+  rawAudioSessionId?: string;  // Session-ID für RAW Audio Mode
+  rawAudioChunkCount?: number;  // Chunk-Zähler für RAW Audio
 }
 

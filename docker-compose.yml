@@ -65,6 +65,9 @@ services:
       # Frontend URL (für CORS)
       - FRONTEND_URL=http://localhost:3001
       
+      # Erlaubte Origins für CORS (komma-separiert)
+      - ALLOWED_ORIGINS=http://localhost:3001,https://server.local.chase295.de
+      
       # MongoDB (INTERN via Container-Name)
       - MONGODB_URI=mongodb://mongodb:27017/iot-orchestrator
       
@@ -72,8 +75,11 @@ services:
       - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-production}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-dev-encryption-key-must-be-32-chars-long}
       
+      # Einfacher API Key (für Device-Clients)
+      - SIMPLE_API_KEY=${SIMPLE_API_KEY:-default-api-key-123}
+      
       # Proxy-Einstellungen
-      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - TRUST_PROXY=${TRUST_PROXY:-true}
       
       # WICHTIG: Externe Services (Vosk, Piper, n8n) werden NICHT über .env
       # konfiguriert, sondern über die Web-UI. Die URLs werden in MongoDB
@@ -122,10 +128,15 @@ services:
       # Next.js Port
       - PORT=3001
       
-      # Backend URLs (Container-intern für SSR, localhost für Browser)
-      - NEXT_PUBLIC_API_URL=http://localhost:3000/api
-      - NEXT_PUBLIC_WS_URL=ws://localhost:8080
-      - NEXT_PUBLIC_DEBUG_WS_URL=ws://localhost:8082
+      # Backend URLs - Für Reverse Proxy
+      - NEXT_PUBLIC_API_URL=https://server.local.chase295.de/api
+      - NEXT_PUBLIC_WS_URL=wss://server.local.chase295.de/ws
+      
+      # Debug-Events verwenden jetzt HTTP-Polling (keine WebSocket, keine Nginx-Config nötig!)
+      
+      # Alternative für lokale Entwicklung:
+      # - NEXT_PUBLIC_API_URL=http://localhost:3000/api
+      # - NEXT_PUBLIC_WS_URL=ws://localhost:8080
       
       # Internal API URL (für Server-Side Rendering)
       - INTERNAL_API_URL=http://backend:3000/api

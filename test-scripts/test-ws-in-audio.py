@@ -50,8 +50,12 @@ except ImportError:
 # KONFIGURATION - HIER ANPASSEN
 # ======================================
 WS_HOST = "localhost"
-WS_PORT = 8081
-WS_PATH = "/ws/external"
+WS_PORT = 8081  # WebSocket Gateway Port (nicht WS-In-Node Port)
+WS_PATH = "/ws/external"     # Leerer Path für Gateway
+
+# Authentifizierung - HIER DEINE WERTE EINTRAGEN!
+CLIENT_ID = "python_audio_client"        # Client ID für Authentifizierung
+CLIENT_SECRET = "test_secret_123"        # Client Secret für Authentifizierung
 
 # Context-Informationen - HIER DEINE WERTE EINTRAGEN!
 CONTEXT_PERSON = "Moritz Haslbeck"      # Name der Person
@@ -61,15 +65,15 @@ CONTEXT_CLIENT = "Laptop xyz"           # Geräte-Name
 # Audio-Konfiguration
 SAMPLE_RATE = 16000    # 16kHz für Vosk STT optimal
 CHANNELS = 1          # Mono
-CHUNK_SIZE = 1024     # Frames pro Buffer
+CHUNK_SIZE = 8000     # Frames pro Buffer (wie vosk-mic-test.py)
 FORMAT = pyaudio.paInt16  # 16-bit PCM
 
 # ======================================
 # ENDE KONFIGURATION
 # ======================================
 
-# Vollständige WebSocket-URL
-WS_URL = f"ws://{WS_HOST}:{WS_PORT}{WS_PATH}"
+# Vollständige WebSocket-URL mit Authentifizierung
+WS_URL = f"ws://{WS_HOST}:{WS_PORT}{WS_PATH}?clientId={CLIENT_ID}&secret={CLIENT_SECRET}"
 
 # Farben für Terminal-Output
 class Colors:
@@ -87,8 +91,9 @@ def print_header():
     print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*70}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}  WebSocket-In Audio Node Tester{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{'='*70}{Colors.ENDC}\n")
-    print(f"{Colors.OKCYAN}🎤 Audio-Modus:{Colors.ENDC} Mikrofon → WS-In-Node → STT")
-    print(f"{Colors.OKCYAN}📡 Verbindung:{Colors.ENDC} {WS_URL}")
+    print(f"{Colors.OKCYAN}🎤 Audio-Modus:{Colors.ENDC} Mikrofon → WebSocket-Gateway → Flow → STT")
+    print(f"{Colors.OKCYAN}📡 Verbindung:{Colors.ENDC} ws://{WS_HOST}:{WS_PORT}{WS_PATH}")
+    print(f"{Colors.OKCYAN}🔑 Client ID:{Colors.ENDC} {CLIENT_ID}")
     print(f"{Colors.OKCYAN}🎵 Audio-Format:{Colors.ENDC} {SAMPLE_RATE}Hz, {CHANNELS}ch, 16-bit PCM")
     print(f"{Colors.OKCYAN}📦 Chunk-Größe:{Colors.ENDC} {CHUNK_SIZE} samples\n")
 
@@ -108,14 +113,16 @@ def create_uso_audio_header(context_person: str = "", context_location: str = ""
     header = {
         "id": str(uuid.uuid4()),
         "type": "audio",
-        "sourceId": "python_audio_client",
+        "sourceId": CLIENT_ID,
         "timestamp": int(datetime.now().timestamp() * 1000),
         "final": False,  # Wird nur beim Beenden auf True gesetzt
         "audioMeta": {
             "sampleRate": SAMPLE_RATE,
             "channels": CHANNELS,
             "encoding": "pcm_s16le",
-            "bitDepth": 16
+            "bitDepth": 16,
+            "format": "int16",  # Format spezifizieren
+            "endianness": "little"  # Little-endian spezifizieren
         }
     }
 
@@ -166,7 +173,7 @@ class AudioStreamer:
             print(f"{Colors.OKGREEN}✓ Mikrofon initialisiert{Colors.ENDC}")
             print(f"  {Colors.OKCYAN}→ Sample Rate:{Colors.ENDC} {SAMPLE_RATE} Hz")
             print(f"  {Colors.OKCYAN}→ Channels:{Colors.ENDC} {CHANNELS}")
-            print(f"  {Colors.OKCYAN}→ Chunk Size:{Colors.ENDC} {CHUNK_SIZE} samples")
+            print(f"  {Colors.OKCYAN}→ Chunk Size:{Colors.ENDC} {CHUNK_SIZE} samples (8KB chunks like vosk-mic-test.py)")
             print(f"  {Colors.OKCYAN}→ Format:{Colors.ENDC} 16-bit PCM\n")
 
             return True
@@ -256,12 +263,15 @@ class AudioStreamer:
 async def send_audio_data(websocket, audio_streamer: AudioStreamer):
     """
     Sendet Audio-Daten an WebSocket-Server
+    WICHTIG: Sendet nur rohe Audio-Binärdaten (keine JSON-Header!)
+    Die WS_In-Node erwartet das USO-Protokoll, aber wir senden direkt Audio.
 
     Args:
         websocket: Die WebSocket-Verbindung
         audio_streamer: AudioStreamer-Instanz
     """
     session_id = None
+    chunk_count = 0
 
     try:
         while True:
@@ -274,33 +284,20 @@ async def send_audio_data(websocket, audio_streamer: AudioStreamer):
             data_type, payload = data
 
             if data_type == "header":
-                # Ersten Header senden
-                await websocket.send(payload)
+                # IGNORIERE Header - senden nur Audio-Daten!
                 session_id = json.loads(payload)["id"]
-                print(f"{Colors.OKBLUE}→ Audio-Header gesendet (Session: {session_id[:8]}...){Colors.ENDC}")
+                print(f"{Colors.OKBLUE}→ Session gestartet (ID: {session_id[:8]}...){Colors.ENDC}")
+                print(f"{Colors.WARNING}⚠️  Header wird NICHT gesendet - nur Audio-Daten!{Colors.ENDC}")
 
             elif data_type == "audio":
-                # Audio-Chunk senden
+                # Audio-Chunk direkt senden (rohe Binärdaten)
                 await websocket.send(payload)
-                print(f"{Colors.OKGREEN}✓ Audio-Chunk gesendet ({len(payload)} bytes){Colors.ENDC}")
+                chunk_count += 1
+                print(f"{Colors.OKGREEN}✓ Audio-Chunk #{chunk_count} gesendet ({len(payload)} bytes){Colors.ENDC}")
 
             elif data_type == "stop":
-                # Beenden-Signal empfangen - sende finalen Header
-                final_header = json.dumps({
-                    "id": session_id,
-                    "type": "audio",
-                    "sourceId": "python_audio_client",
-                    "timestamp": int(datetime.now().timestamp() * 1000),
-                    "final": True,
-                    "audioMeta": {
-                        "sampleRate": SAMPLE_RATE,
-                        "channels": CHANNELS,
-                        "encoding": "pcm_s16le",
-                        "bitDepth": 16
-                    }
-                })
-                await websocket.send(final_header)
-                print(f"{Colors.OKCYAN}→ Final-Header gesendet{Colors.ENDC}")
+                # Beenden-Signal empfangen - keine weiteren Daten senden
+                print(f"{Colors.OKCYAN}→ Audio-Stream beendet (insgesamt {chunk_count} Chunks){Colors.ENDC}")
                 break
 
     except websockets.exceptions.ConnectionClosed:
@@ -332,7 +329,8 @@ async def interactive_audio_client():
     context_client = CONTEXT_CLIENT
 
     # Anzeige der konfigurierten Context-Informationen
-    print(f"{Colors.OKGREEN}✓ Context-Informationen (aus Script):{Colors.ENDC}")
+    print(f"{Colors.OKGREEN}✓ Authentifizierung & Context:{Colors.ENDC}")
+    print(f"  🔑 Client ID: {Colors.BOLD}{CLIENT_ID}{Colors.ENDC}")
     print(f"  🕐 Zeit: {Colors.BOLD}(automatisch hinzugefügt bei jedem Send){Colors.ENDC}")
     if context_person:
         print(f"  👤 Person: {Colors.BOLD}{context_person}{Colors.ENDC}")

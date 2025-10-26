@@ -92,6 +92,35 @@ export default function WSInNodeConfig({ config, healthStatus, onChange }: WSInN
           </p>
         </div>
 
+        {/* Raw Audio Mode */}
+        {config.dataType === 'audio' && (
+          <div className="bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+            <label className="flex items-start cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={config.rawAudioMode === true}
+                onChange={(e) => onChange('rawAudioMode', e.target.checked)}
+                className="mt-1 h-5 w-5 text-orange-600 border-gray-300 dark:border-gray-600 rounded focus:ring-orange-500 dark:focus:ring-orange-400"
+              />
+              <div className="ml-3">
+                <span className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+                  🎵 Raw Audio Mode
+                </span>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">
+                  Aktiviert: Clients senden direkt rohe Audio-Binärdaten (ohne JSON-Header).
+                  <br />
+                  Deaktiviert: Clients verwenden das USO-Protokoll (Header → Payload).
+                </p>
+                <div className="mt-2 text-xs">
+                  <span className="inline-block px-2 py-0.5 bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 rounded">
+                    ⚡ Für direkte Audio-Streams (wie vosk-mic-test.py)
+                  </span>
+                </div>
+              </div>
+            </label>
+          </div>
+        )}
+
         {/* Context-Weitergabe */}
         <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <label className="flex items-start cursor-pointer group">

@@ -38,6 +38,12 @@ export default function EditPiperServerModal({ isOpen, server, onClose, onSave, 
 
   const testPiperWebSocket = (wsUrl: string): Promise<void> => {
     return new Promise((resolve, reject) => {
+      // Prüfe ob lokale ws:// URL über HTTPS getestet wird
+      if (window.location.protocol === 'https:' && wsUrl.startsWith('ws://')) {
+        reject(new Error('Lokale Server (ws://) können über HTTPS nicht getestet werden. Bitte speichern Sie die URL ohne Test.'));
+        return;
+      }
+      
       let ws: WebSocket | null = null;
       
       const timeout = setTimeout(() => {

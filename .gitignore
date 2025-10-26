@@ -27,6 +27,31 @@ out/
 # Testing
 coverage/
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+venv/
+env/
+ENV/
+
+# Audio/Media test files
+output.wav
+*.raw
+
 # Misc
 *.pem
+
+# Models
+models/
+
+# Test recordings
+*.wav
+*.raw
+test-*.wav
 

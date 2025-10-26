@@ -71,8 +71,32 @@ export class PiperServersController {
   }
 
   /**
+   * POST /api/piper-servers/test-connection
+   * Testet die Verbindung zu einer Piper-Server-URL (ohne Speicherung)
+   */
+  @Post('test-connection')
+  async testConnection(@Body() body: { url: string }) {
+    try {
+      this.logger.info('Testing Piper server connection', { url: body.url });
+
+      // Teste Verbindung
+      const result = await this.piperService.testConnection(body.url);
+
+      this.logger.info('Piper server test completed', { 
+        url: body.url,
+        success: result.success 
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error('Piper server test failed', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * POST /api/piper-servers/:id/test
-   * Testet die Verbindung zu einem Piper-Server
+   * Testet die Verbindung zu einem Piper-Server (mit ID)
    */
   @Post(':id/test')
   async testServer(@Param('id') id: string) {

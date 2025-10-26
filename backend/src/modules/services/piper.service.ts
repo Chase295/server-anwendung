@@ -1,112 +1,160 @@
 import { Injectable } from '@nestjs/common';
-import axios, { AxiosInstance } from 'axios';
+import WebSocket from 'ws';
 import { AppLogger } from '../../common/logger';
+import { EventEmitter } from 'events';
 
 /**
  * PiperService - Wrapper für Piper Text-to-Speech Server
- * Kommuniziert mit dem externen Piper-Server über HTTP
+ * Verwendet WebSocket-Verbindung (wie vosk-mic-test.py und piper_test.py)
  */
 @Injectable()
 export class PiperService {
   private readonly logger = new AppLogger('PiperService');
-  private axiosInstance: AxiosInstance;
-
-  constructor() {
-    this.axiosInstance = axios.create({
-      timeout: 30000, // 30 Sekunden Timeout
-      responseType: 'arraybuffer', // Für Audio-Daten
-    });
-  }
+  private connections: Map<string, PiperConnection> = new Map();
+  private reconnectAttempts = 3;
+  private reconnectDelay = 2000;
 
   /**
-   * Konvertiert Text zu Audio
+   * Erstellt eine neue WebSocket-Verbindung zum Piper-Server
    */
-  async synthesize(text: string, config: PiperConfig): Promise<Buffer> {
+  async connect(sessionId: string, config: PiperConfig): Promise<PiperConnection> {
     try {
-      this.logger.info('Synthesizing text with Piper', {
-        textLength: text.length,
-        voice: config.voiceModel,
-      });
-
-      const startTime = Date.now();
-
-      // Piper API-Call (HTTP POST)
-      const response = await this.axiosInstance.post(
-        config.serviceUrl,
-        {
-          text,
-          voice: config.voiceModel || 'de_DE-thorsten-medium',
-          speaker_id: config.speakerId,
-          length_scale: config.lengthScale || 1.0,
-          noise_scale: config.noiseScale || 0.667,
-          noise_w: config.noiseW || 0.8,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
+      // Prüfe ob bereits eine Verbindung existiert
+      if (this.connections.has(sessionId)) {
+        const existing = this.connections.get(sessionId)!;
+        if (existing.ws.readyState === WebSocket.OPEN) {
+          return existing;
         }
-      );
+        // Alte Verbindung schließen
+        existing.ws.close();
+        this.connections.delete(sessionId);
+      }
 
-      const duration = Date.now() - startTime;
-      const audioBuffer = Buffer.from(response.data);
+      this.logger.info('Connecting to Piper server', { sessionId, url: config.serviceUrl });
 
-      this.logger.info('Piper synthesis completed', {
-        textLength: text.length,
-        audioSize: audioBuffer.length,
-        duration: `${duration}ms`,
+      const ws = new WebSocket(config.serviceUrl);
+      const emitter = new EventEmitter();
+      let isConnected = false;
+
+      const connection: PiperConnection = {
+        sessionId,
+        ws,
+        emitter,
+        config,
+        lastActivity: Date.now(),
+        isReady: false,
+      };
+
+      // Connection Promise
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Piper connection timeout'));
+        }, 10000);
+
+        ws.on('open', () => {
+          clearTimeout(timeout);
+          isConnected = true;
+          connection.isReady = true;
+          
+          this.logger.info('Piper connection established', { sessionId });
+          resolve();
+        });
+
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          this.logger.error('Piper connection error', error.message, { sessionId });
+          if (!isConnected) {
+            reject(error);
+          }
+        });
+
+        ws.on('close', () => {
+          this.logger.info('Piper connection closed', { sessionId });
+          this.connections.delete(sessionId);
+          emitter.emit('close');
+        });
+
+        ws.on('message', (data: Buffer) => {
+          try {
+            // Piper sendet Audio-Daten als binary
+            if (Buffer.isBuffer(data) && data.length > 0) {
+              connection.lastActivity = Date.now();
+              emitter.emit('audio', data);
+            } else {
+              this.logger.warn('Piper sent unexpected message format', {
+                sessionId,
+                dataLength: data.length,
+              });
+            }
+          } catch (error) {
+            this.logger.error('Error handling Piper message', error.message, { sessionId });
+          }
+        });
       });
 
-      return audioBuffer;
+      this.connections.set(sessionId, connection);
+      return connection;
     } catch (error) {
-      this.logger.error('Piper synthesis failed', error.message, {
-        text: text.substring(0, 50) + '...',
-      });
-
-      if (error.response) {
-        throw new Error(`Piper error: ${error.response.status} - ${error.response.statusText}`);
-      } else if (error.request) {
-        throw new Error('Piper server nicht erreichbar');
-      } else {
-        throw new Error(`Piper synthesis error: ${error.message}`);
-      }
-    }
-  }
-
-  /**
-   * Streaming-Synthese (für große Texte)
-   * Teilt den Text in Chunks und verarbeitet sie nacheinander
-   */
-  async synthesizeStreaming(
-    text: string,
-    config: PiperConfig,
-    chunkCallback: (chunk: Buffer) => void
-  ): Promise<void> {
-    try {
-      // Teile Text in Sätze
-      const sentences = this.splitIntoSentences(text);
-
-      for (const sentence of sentences) {
-        if (sentence.trim().length === 0) continue;
-
-        const audioChunk = await this.synthesize(sentence, config);
-        chunkCallback(audioChunk);
-      }
-    } catch (error) {
-      this.logger.error('Streaming synthesis failed', error.message);
+      this.logger.error('Failed to connect to Piper', error.message, { sessionId });
       throw error;
     }
   }
 
   /**
-   * Teilt Text in Sätze auf
+   * Sendet Text an Piper und gibt Audio-Stream zurück
    */
-  private splitIntoSentences(text: string): string[] {
-    // Einfache Satz-Trennung (kann verbessert werden)
-    return text
-      .split(/[.!?]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+  async sendText(sessionId: string, text: string): Promise<void> {
+    const connection = this.connections.get(sessionId);
+
+    if (!connection || connection.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Piper connection not available');
+    }
+
+    try {
+      // Sende Text als Plain Text (wie piper_test.py)
+      connection.ws.send(text);
+      connection.lastActivity = Date.now();
+      
+      this.logger.debug('Text sent to Piper', {
+        sessionId,
+        textLength: text.length,
+        text: text.substring(0, 50),
+      });
+    } catch (error) {
+      this.logger.error('Error sending text to Piper', error.message, { sessionId });
+      throw error;
+    }
+  }
+
+  /**
+   * Schließt die Verbindung
+   */
+  disconnect(sessionId: string): void {
+    const connection = this.connections.get(sessionId);
+
+    if (connection) {
+      connection.ws.close();
+      this.connections.delete(sessionId);
+      this.logger.info('Piper connection disconnected', { sessionId });
+    }
+  }
+
+  /**
+   * Holt eine bestehende Verbindung
+   */
+  getConnection(sessionId: string): PiperConnection | undefined {
+    return this.connections.get(sessionId);
+  }
+
+  /**
+   * Cleanup aller Verbindungen
+   */
+  cleanup(): void {
+    this.connections.forEach((connection) => {
+      connection.ws.close();
+    });
+    this.connections.clear();
+    this.logger.info('All Piper connections cleaned up');
   }
 
   /**
@@ -114,53 +162,40 @@ export class PiperService {
    */
   async testConnection(serviceUrl: string): Promise<{ success: boolean; message: string }> {
     try {
-      // Test mit kurzer Phrase
-      const testText = 'Test';
-      
-      const response = await this.axiosInstance.post(
-        serviceUrl,
-        {
-          text: testText,
-          voice: 'de_DE-thorsten-medium',
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 10000,
-        }
-      );
+      const testSessionId = `test_${Date.now()}`;
+      const ws = new WebSocket(serviceUrl);
 
-      if (response.status === 200 && response.data) {
-        return {
-          success: true,
-          message: 'Verbindung zum Piper-Server erfolgreich',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Piper-Server antwortet nicht korrekt',
-        };
-      }
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          ws.close();
+          resolve({
+            success: false,
+            message: 'Connection timeout - Piper server nicht erreichbar',
+          });
+        }, 5000);
+
+        ws.on('open', () => {
+          clearTimeout(timeout);
+          ws.close();
+          resolve({
+            success: true,
+            message: 'Verbindung erfolgreich',
+          });
+        });
+
+        ws.on('error', (error) => {
+          clearTimeout(timeout);
+          resolve({
+            success: false,
+            message: `Verbindungsfehler: ${error.message}`,
+          });
+        });
+      });
     } catch (error) {
-      this.logger.error('Piper connection test failed', error.message);
-
-      if (error.code === 'ECONNREFUSED') {
-        return {
-          success: false,
-          message: 'Piper-Server nicht erreichbar (Connection refused)',
-        };
-      } else if (error.code === 'ETIMEDOUT') {
-        return {
-          success: false,
-          message: 'Verbindung zum Piper-Server timeout',
-        };
-      } else {
-        return {
-          success: false,
-          message: `Verbindungsfehler: ${error.message}`,
-        };
-      }
+      return {
+        success: false,
+        message: `Verbindungsfehler: ${error.message}`,
+      };
     }
   }
 
@@ -169,11 +204,15 @@ export class PiperService {
    */
   async listVoices(serviceUrl: string): Promise<string[]> {
     try {
-      const response = await this.axiosInstance.get(`${serviceUrl}/voices`);
-      return response.data.voices || [];
+      // Fallback auf bekannte Stimmen
+      return [
+        'de_DE-thorsten-medium',
+        'de_DE-thorsten-low',
+        'en_US-lessac-medium',
+        'en_GB-alan-medium',
+      ];
     } catch (error) {
       this.logger.warn('Could not fetch voice list from Piper', error.message);
-      // Fallback auf bekannte Stimmen
       return [
         'de_DE-thorsten-medium',
         'de_DE-thorsten-low',
@@ -197,3 +236,14 @@ export interface PiperConfig {
   sampleRate?: number;
 }
 
+/**
+ * Piper-Verbindung
+ */
+export interface PiperConnection {
+  sessionId: string;
+  ws: WebSocket;
+  emitter: EventEmitter;
+  config: PiperConfig;
+  lastActivity: number;
+  isReady: boolean;
+}

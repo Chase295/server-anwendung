@@ -33,46 +33,6 @@ export default function AddPiperServerModal({ isOpen, onClose, onAdd }: AddPiper
     onClose();
   };
 
-  const testPiperWebSocket = (wsUrl: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      let ws: WebSocket | null = null;
-      
-      const timeout = setTimeout(() => {
-        if (ws) {
-          ws.close();
-        }
-        reject(new Error('Timeout: Server antwortet nicht innerhalb von 10 Sekunden'));
-      }, 10000);
-      
-      try {
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-          clearTimeout(timeout);
-          if (ws) {
-            ws.close();
-          }
-          resolve();
-        };
-
-        ws.onerror = () => {
-          clearTimeout(timeout);
-          reject(new Error(`WebSocket-Fehler: Kann nicht zu ${wsUrl} verbinden. Ist der Server erreichbar?`));
-        };
-
-        ws.onclose = (event) => {
-          if (!event.wasClean && event.code !== 1000) {
-            clearTimeout(timeout);
-            reject(new Error(`Verbindung unerwartet geschlossen (Code: ${event.code})`));
-          }
-        };
-      } catch (error: any) {
-        clearTimeout(timeout);
-        reject(new Error(`Fehler beim Verbinden: ${error.message}`));
-      }
-    });
-  };
-
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
@@ -87,18 +47,26 @@ export default function AddPiperServerModal({ isOpen, onClose, onAdd }: AddPiper
         throw new Error('URL muss mit ws:// oder wss:// beginnen');
       }
 
-      // Teste WebSocket-Verbindung
-      await testPiperWebSocket(trimmedUrl);
+      // Teste über Backend-API (kein Mixed-Content-Problem!)
+      const response = await api.post('/piper-servers/test-connection', { url: trimmedUrl });
       
-      setTestResult({
-        success: true,
-        message: `✓ Verbindung zu ${trimmedUrl} erfolgreich!`,
-      });
+      if (response.data.success) {
+        setTestResult({
+          success: true,
+          message: `✓ Verbindung zu ${trimmedUrl} erfolgreich!`,
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: response.data.message || 'Verbindung fehlgeschlagen',
+        });
+      }
     } catch (err: any) {
       console.error('Piper server test failed:', err);
+      const message = err.response?.data?.message || err.message || 'Verbindung fehlgeschlagen';
       setTestResult({
         success: false,
-        message: err.message || 'Verbindung fehlgeschlagen',
+        message,
       });
     } finally {
       setIsTesting(false);
@@ -172,6 +140,9 @@ export default function AddPiperServerModal({ isOpen, onClose, onAdd }: AddPiper
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Muss mit <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">ws://</code> oder <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">wss://</code> beginnen.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Die Verbindung wird über das Backend getestet (keine Mixed-Content-Probleme).
             </p>
           </div>
 

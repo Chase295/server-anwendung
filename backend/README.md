@@ -14,7 +14,7 @@ Backend-Server für den IoT & Voice Orchestrator, gebaut mit NestJS.
 - ✅ **Winston-Logging** mit strukturiertem JSON-Format
 - ✅ **Service-Integration** - Vosk (STT), Piper (TTS), Flowise (AI) - siehe [SERVICES.md](../SERVICES.md)
 - ✅ **Flowise AI Streaming** ⚡ - Token-für-Token Echtzeit-Ausgabe mit Server-Sent Events (SSE)
-- ✅ **Debug Events Gateway** - WebSocket-Server für Live-Debugging (Port 8082)
+- ✅ **Debug Events Gateway** - HTTP-basiertes Event-Caching für Live-Debugging
 - ✅ **Context-Informationen** - Metadaten-System für personalisierte KI-Interaktionen
 - ✅ **Health-Status für Nodes** - Live-Verbindungsstatus (WS-In, WS-Out) mit Reconnect-Tracking
 - ✅ **Robustes WebSocket-Cleanup** - Automatisches removeAllListeners() verhindert "Zombie-Connections"
@@ -35,7 +35,7 @@ src/
 │   ├── auth/          # Authentifizierung & Secret-Management
 │   ├── devices/       # WebSocket-Server & Device-Verwaltung
 │   │   ├── websocket.gateway.ts     # ESP32 WebSocket-Server (Port 8080)
-│   │   └── debug-events.gateway.ts  # Debug Events WebSocket (Port 8082)
+│   │   └── debug-events.gateway.ts  # Debug Events Gateway (Event-Caching + HTTP Endpoint)
 │   ├── flow-core/     # Flow-Engine & Flow-Verwaltung
 │   │   ├── flow-engine.ts           # Orchestriert Nodes und Events
 │   │   └── node-factory.ts          # Erstellt Node-Instanzen
@@ -55,22 +55,33 @@ src/
 
 #### 1. Debug Events Gateway (`debug-events.gateway.ts`)
 
-Separater WebSocket-Server für Live-Debugging:
+HTTP-basiertes Event-Caching für Live-Debugging:
 
 ```typescript
-@WebSocketGateway(8082, { cors: true })
 export class DebugEventsGateway {
+  private eventCache: DebugEvent[] = [];
+  private readonly maxCachedEvents = 200;
+  
   broadcastDebugEvent(event: DebugEvent): void {
-    // Sendet Events in Echtzeit an alle verbundenen Frontend-Clients
+    // Cache für HTTP-Zugriff
+    this.eventCache.unshift(event);
+    if (this.eventCache.length > this.maxCachedEvents) {
+      this.eventCache = this.eventCache.slice(0, this.maxCachedEvents);
+    }
+    // Sendet Events an verbundene WebSocket-Clients
+  }
+  
+  getCachedEvents(flowId?: string, since?: number): DebugEvent[] {
+    // Liefert gecachte Events via HTTP
   }
 }
 ```
 
 **Features:**
-- ✅ WebSocket auf Port 8082
-- ✅ Broadcast an alle verbundenen Clients
-- ✅ Keine Authentifizierung (nur für Development)
-- ✅ Auto-Reconnect im Frontend
+- ✅ Event-Caching (max. 200 Events)
+- ✅ HTTP-Endpoint: `GET /api/devices/debug-events`
+- ✅ Filter nach flowId und since (Zeitstempel)
+- ✅ Keine Nginx-Konfiguration nötig!
 
 **Event-Format:**
 ```json

@@ -22,11 +22,11 @@ React/Next.js Frontend für den IoT & Voice Orchestrator.
 - ✅ **Dark Mode** mit automatischer System-Erkennung und Persistenz
 - ✅ **Admin-Authentifizierung**
 - ✅ **Debug Events Panel** - Live-Monitoring aller Debug-Node-Ausgaben
-  - WebSocket-basierte Echtzeit-Events
+  - HTTP-Polling basiert (alle 2 Sekunden)
   - 3 Ansichtsmodi (Kompakt, Detailliert, JSON)
   - Context-Informationen Anzeige
   - Text-Preview für alle Payloads
-  - Auto-Reconnect bei Verbindungsabbruch
+  - Keine Nginx-Konfiguration nötig!
 
 > **Hinweis:** Details zur Integration externer Services (Vosk, Piper, Flowise) finden Sie in der [SERVICES.md](../SERVICES.md).
 
@@ -57,20 +57,20 @@ cp .env.local.example .env.local
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:3000/api
 NEXT_PUBLIC_WS_URL=ws://localhost:8080
-NEXT_PUBLIC_DEBUG_EVENTS_URL=ws://localhost:8082
 ```
 
 Für Production mit Nginx:
 ```env
 NEXT_PUBLIC_API_URL=https://your-domain.com/api
 NEXT_PUBLIC_WS_URL=wss://your-domain.com/ws
-NEXT_PUBLIC_DEBUG_EVENTS_URL=wss://your-domain.com/debug-events
 ```
 
 **Ports:**
 - `3000`: Backend HTTP/API
 - `8080`: WebSocket für ESP32-Clients
-- `8082`: Debug Events WebSocket
+- `8082`: Debug Events (intern, wird via HTTP-Polling abgerufen)
+
+**Hinweis:** Debug-Events verwenden HTTP-Polling und benötigen **keine** separate URL-Config!
 
 ## Development
 
@@ -355,10 +355,11 @@ Hallo von Python!
 - ⬇️ **Auto-Scroll** - Automatisch zum neuesten Event scrollen
 
 **Technische Details:**
-- **WebSocket-Verbindung** zu `ws://localhost:8082`
-- **Auto-Reconnect** bei Verbindungsabbruch
-- **Event-Limit** 50 Events (älteste werden automatisch entfernt)
+- **HTTP-Polling** alle 2 Sekunden via `/api/devices/debug-events`
+- **Event-Caching** im Backend (max. 200 Events)
+- **Frontend-Event-Limit** 50 Events (älteste werden automatisch entfernt)
 - **Flow-spezifisch** - Zeigt nur Events des aktuellen Flows
+- **Keine Nginx-Config** nötig - nutzt existierende `/api/` Route!
 
 ### Verwendung
 
@@ -396,20 +397,21 @@ const { events, isConnected, clearEvents } = useDebugEvents(flowId);
 ```
 
 **Technische Implementierung:**
-- WebSocket-Management mit Auto-Reconnect
+- HTTP-Polling (2 Sekunden Intervall)
 - React `useState` für Events-Liste
-- `useRef` für Flow-ID (verhindert Re-Connections)
+- `useRef` für Polling-Interval und Flow-ID
 - `useCallback` für Memoization
 - Cleanup bei Unmount
 
 ### Troubleshooting
 
-**Problem: Keine Verbindung**
+**Problem: Keine Events**
 ```
 Status: 🔴 Getrennt
 ```
-→ Prüfe ob Backend läuft: `docker logs iot-orchestrator-backend | grep 8082`
-→ Sollte zeigen: "Debug Events WebSocket server listening on port 8082"
+→ Prüfe ob Backend läuft: `docker logs iot-orchestrator-backend`
+→ Prüfe ob Event-Endpoint erreichbar: `curl http://localhost:3000/api/devices/debug-events`
+→ Sollte zeigen: `{"events": [...]}`
 
 **Problem: Events kommen doppelt**
 → Bereits gefixt! Hook verhindert mehrfache Verbindungen

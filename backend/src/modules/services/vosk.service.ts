@@ -56,11 +56,11 @@ export class VoskService {
           isConnected = true;
           connection.isReady = true;
           
-          // Sende Konfiguration an Vosk
+          // Sende Konfiguration an Vosk (exakt wie vosk-mic-test.py)
           const initConfig = {
             config: {
               sample_rate: config.sampleRate || 16000,
-              words: config.words || false,
+              words: config.words !== false, // Standard: true, nur wenn explizit false gesetzt
             },
           };
           ws.send(JSON.stringify(initConfig));
@@ -86,18 +86,45 @@ export class VoskService {
         ws.on('message', (data: Buffer) => {
           try {
             const result = JSON.parse(data.toString());
-            
-            // Vosk sendet partielle und finale Ergebnisse
+
+            this.logger.debug('Vosk response received', {
+              sessionId,
+              hasPartial: !!result.partial,
+              hasText: !!result.text,
+              result: result,
+            });
+
+            // Vosk sendet partielle und finale Ergebnisse (exakt wie vosk-mic-test.py)
             if (result.partial) {
+              this.logger.info('Vosk partial result', {
+                sessionId,
+                partial: result.partial,
+              });
               emitter.emit('partial', result.partial);
             }
-            
+
             if (result.text) {
-              emitter.emit('result', {
+              this.logger.info('Vosk final result', {
+                sessionId,
                 text: result.text,
-                final: true,
-                confidence: result.confidence || 1.0,
+                hasWords: !!result.result,
               });
+              
+              // Wenn result.result vorhanden ist (mit Wort-Details), verwende es
+              if (result.result) {
+                emitter.emit('result', {
+                  text: result.text,
+                  final: true,
+                  confidence: result.confidence || 1.0,
+                  words: result.result, // Wort-Details hinzufügen
+                });
+              } else {
+                emitter.emit('result', {
+                  text: result.text,
+                  final: true,
+                  confidence: result.confidence || 1.0,
+                });
+              }
             }
           } catch (error) {
             this.logger.error('Error parsing Vosk response', error.message, { sessionId });
