@@ -22,6 +22,14 @@
 
 Das Debug Events System ermöglicht es, **alle Datenströme in Echtzeit** zu überwachen, die durch Debug-Nodes in Ihren Flows fließen. Es ist wie ein "Fenster" in Ihr laufendes System.
 
+**Neue Feature: Automatische Debug-Events**
+
+Einige Nodes senden **automatisch** Debug-Events, ohne dass eine Debug-Node verbunden sein muss:
+- ✅ **Device TXT Input Node:** Zeigt automatisch alle empfangenen Texte an
+- ✅ **AI Node:** Zeigt alle AI-Antwort-Tokens (wenn mit Debug-Node verbunden)
+
+Das macht das Debugging noch einfacher, da Sie direkt im Event-Panel sehen, was eingeht!
+
 ### Was kann ich damit sehen?
 
 - ✅ **Text-Nachrichten** mit vollem Inhalt

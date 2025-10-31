@@ -6,6 +6,8 @@ import { X, Trash2, Settings } from 'lucide-react';
 import { HealthStatusEvent } from '@/hooks/useDebugEvents';
 import MicNodeConfig from '../node-ui/MicNodeConfig';
 import SpeakerNodeConfig from '../node-ui/SpeakerNodeConfig';
+import DeviceTxtInputNodeConfig from '../node-ui/DeviceTxtInputNodeConfig';
+import DeviceTxtOutputNodeConfig from '../node-ui/DeviceTxtOutputNodeConfig';
 import STTNodeConfig from '../node-ui/STTNodeConfig';
 import TTSNodeConfig from '../node-ui/TTSNodeConfig';
 import AINodeConfig from '../node-ui/AINodeConfig';
@@ -61,8 +63,14 @@ export default function NodePanel({ node, healthStatus, onClose, onUpdate, onDel
       case 'mic':
         return <MicNodeConfig config={config} onChange={handleConfigChange} />;
 
+      case 'device_txt_input':
+        return <DeviceTxtInputNodeConfig config={config} onChange={handleConfigChange} />;
+
       case 'speaker':
         return <SpeakerNodeConfig config={config} onChange={handleConfigChange} />;
+
+      case 'device_txt_output':
+        return <DeviceTxtOutputNodeConfig config={config} onChange={handleConfigChange} />;
 
       case 'stt':
         return <STTNodeConfig config={config} onChange={handleConfigChange} />;

@@ -43,8 +43,8 @@ import os
 # ======================================
 # KONFIGURATION - HIER ANPASSEN
 # ======================================
-WS_HOST = "localhost"
-WS_PORT = 8080  # WebSocket Gateway Port
+WS_HOST = "esp32.local.chase295.de"
+WS_PORT = 443  # WebSocket Gateway Port
 WS_PATH = "/ws/external"
 
 # Geräte-Informationen  
@@ -55,7 +55,23 @@ DEVICE_NAME = "python-voice-device"  # Name des Gerätes
 # Oder hier:
 API_KEY = os.getenv("SIMPLE_API_KEY", "default-api-key-123")
 
-# Audio-Konfiguration
+# ======================================
+# GERÄTE-FÄHIGKEITEN (CAPABILITIES)
+# ======================================
+# Definiere hier die Fähigkeiten dieses Gerätes
+# Verfügbare Capabilities:
+#   - 'mic': Mikrofon-Eingabe (Audio senden)
+#   - 'speaker': Lautsprecher-Ausgabe (Audio empfangen)
+#   - 'txt_input': Text-Eingabe (Text senden)
+#   - 'txt_output': Text-Ausgabe (Text empfangen)
+DEVICE_CAPABILITIES = [
+    'mic',           # Mikrofon vorhanden
+    'speaker',       # Lautsprecher vorhanden
+    'txt_output',    # Text-Ausgabe verfügbar
+    'txt_input',     # Text-Eingabe verfügbar
+]
+
+# Audio-Konfiguration (nur relevant wenn 'mic' oder 'speaker' aktiv ist)
 SAMPLE_RATE = 16000    # 16kHz für Vosk STT optimal
 CHANNELS = 1          # Mono
 CHUNK_SIZE = 8000     # Frames pro Buffer
@@ -90,11 +106,23 @@ def print_header():
     print(f"{Colors.OKCYAN}📦 Chunk-Größe:{Colors.ENDC} {CHUNK_SIZE} samples\n")
     print(f"{Colors.WARNING}💡 WICHTIG:{Colors.ENDC}")
     print(f"   {Colors.OKCYAN}• Verbindet zu WebSocket-Gateway (Port {WS_PORT}){Colors.ENDC}")
-    print(f"   {Colors.OKCYAN}• Device '{DEVICE_NAME}' in Mic-Node auswählbar{Colors.ENDC}\n")
+    
+    # Zeige aktive Capabilities
+    cap_icons = {
+        'mic': '🎤',
+        'speaker': '🔊',
+        'txt_input': '📝 Input',
+        'txt_output': '📤 Output'
+    }
+    active_caps = [f"{cap_icons.get(cap, '•')} {cap}" for cap in DEVICE_CAPABILITIES]
+    print(f"   {Colors.OKCYAN}• Verfügbare Fähigkeiten: {', '.join(active_caps)}{Colors.ENDC}")
+    print(f"   {Colors.OKCYAN}• Device '{DEVICE_NAME}' in entsprechenden Nodes auswählbar{Colors.ENDC}\n")
     print(f"{Colors.WARNING}💡 Bedienung:{Colors.ENDC}")
     print(f"   {Colors.OKGREEN}• Enter-Taste:{Colors.ENDC} Mikrofon-Audio senden")
+    print(f"   {Colors.OKGREEN}• 't' + Enter:{Colors.ENDC} Text-Eingabe-Modus")
     print(f"   {Colors.OKGREEN}• q + Enter:{Colors.ENDC} Programm beenden")
-    print(f"   {Colors.OKGREEN}• Lautsprecher:{Colors.ENDC} Empfängt automatisch Audio\n")
+    print(f"   {Colors.OKGREEN}• Lautsprecher:{Colors.ENDC} Empfängt automatisch Audio")
+    print(f"   {Colors.OKGREEN}• TXT Output:{Colors.ENDC} Zeigt Text-Ausgaben in der Console\n")
 
 def create_uso_audio_header(final: bool = False) -> dict:
     """
@@ -303,13 +331,14 @@ class KeyboardInput:
 
     def __init__(self):
         self.input_queue = queue.Queue()
+        self.text_input_active = False  # Flag für Text-Eingabe-Modus
 
     def start(self):
         """Startet Keyboard-Input in separatem Thread"""
         def input_thread():
             while True:
                 try:
-                    line = input().strip().lower()
+                    line = input().strip()
                     self.input_queue.put(line)
                 except EOFError:
                     break
@@ -325,6 +354,63 @@ class KeyboardInput:
             return self.input_queue.get_nowait()
         except queue.Empty:
             return None
+
+async def send_text_data(websocket, keyboard_input: KeyboardInput):
+    """
+    Sendet Text als USO an WebSocket-Gateway
+    Wird aufgerufen wenn 't' eingegeben wird
+    """
+    try:
+        while True:
+            await asyncio.sleep(0.1)
+            
+            # Prüfe ob Text-Eingabe aktiv ist
+            if not keyboard_input.text_input_active:
+                continue
+            
+            # Hole Input aus der Queue
+            text = keyboard_input.get_input()
+            if text is None:
+                await asyncio.sleep(0.05)
+                continue
+            
+            print(f"{Colors.OKCYAN}→ Text-Modus: Input erhalten '{text}'{Colors.ENDC}")
+            
+            # Wechsel zu Audio-Modus wenn 'a'
+            if text.lower() == 'a':
+                keyboard_input.text_input_active = False
+                print(f"{Colors.OKCYAN}→ Wechsel zu Audio-Modus{Colors.ENDC}")
+                print(f"{Colors.OKCYAN}   (Drücke Enter zum Starten/Stoppen){Colors.ENDC}")
+                continue
+            
+            # Text senden als USO
+            if text:
+                session_id = f"txt_{DEVICE_NAME}_{int(datetime.now().timestamp() * 1000)}"
+                
+                # USO Header erstellen
+                header = {
+                    "id": session_id,
+                    "type": "text",
+                    "sourceId": DEVICE_NAME,
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "final": True
+                }
+                
+                # Header als JSON senden
+                header_json = json.dumps(header)
+                print(f"{Colors.OKCYAN}→ Sende Header: {header_json[:100]}{Colors.ENDC}")
+                await websocket.send(header_json)
+                
+                # Payload senden (als String!)
+                print(f"{Colors.OKCYAN}→ Sende Payload: {text[:100]}{Colors.ENDC}")
+                await websocket.send(text)
+                
+                print(f"{Colors.OKGREEN}✓ Text gesendet:{Colors.ENDC} {text[:100]}")
+    
+    except websockets.exceptions.ConnectionClosed:
+        print(f"{Colors.FAIL}✗ Verbindung geschlossen{Colors.ENDC}")
+    except Exception as e:
+        print(f"{Colors.FAIL}✗ Fehler beim Senden: {e}{Colors.ENDC}")
 
 async def send_audio_data(websocket, audio_streamer: AudioStreamer):
     """
@@ -390,28 +476,122 @@ async def send_audio_data(websocket, audio_streamer: AudioStreamer):
 
 async def receive_messages(websocket, audio_streamer: AudioStreamer):
     """
-    Empfängt Nachrichten vom WebSocket-Server (Speaker Audio)
-    Behandelt USO-Protokoll wie test-ws-out-audio: Binary-Daten direkt als Audio abspielen
+    Empfängt Nachrichten vom WebSocket-Server (Speaker Audio & TXT Output)
+    Behandelt USO-Protokoll: Header (JSON) + Payload (separate Frames)
+    Ähnlich wie WebSocket Gateway in backend
     """
+    last_uso_header = None  # Speichert letzten Header (für zwei-Phasen Protokoll)
+    session_buffer = {}  # Session-Buffer für Streaming (sessionId -> text)
+    
     try:
         async for message in websocket:
             if isinstance(message, (bytes, bytearray)):
-                # Binary-Daten = Audio (wie test-ws-out-audio.py Zeile 175)
-                print(f"{Colors.OKGREEN}🔊 Spiele {len(message)} Bytes Audio ab...{Colors.ENDC}")
-                play_audio_data(message, sample_rate=16000)
+                # Binary-Daten = Payload (Audio oder Binary-Daten)
+                if last_uso_header and last_uso_header.get('type') == 'audio':
+                    # Audio-Daten direkt abspielen
+                    print(f"{Colors.OKGREEN}🔊 Spiele {len(message)} Bytes Audio ab...{Colors.ENDC}")
+                    play_audio_data(message, sample_rate=16000)
+                elif last_uso_header and last_uso_header.get('type') == 'text':
+                    # Text-Payload für TXT Output
+                    payload = message.decode('utf-8')
+                    is_final = last_uso_header.get('final', True)
+                    session_id = last_uso_header.get('id', 'unknown')
+                    
+                    # Streaming-Behandlung
+                    if not is_final:
+                        # Streaming-Chunk (Token-für-Token wie ChatGPT!)
+                        if session_id not in session_buffer:
+                            session_buffer[session_id] = {'chunks': [], 'chunk_count': 0}
+                            print(f"\n{Colors.OKGREEN}📝 TXT Output gestartet{Colors.ENDC}")
+                            print(f"{Colors.OKCYAN}→ Text:{Colors.ENDC} ", end='', flush=True)
+                        
+                        session = session_buffer[session_id]
+                        session['chunks'].append(payload)
+                        session['chunk_count'] += 1
+                        
+                        # Live-Anzeige: Nur der Text, kein JSON! (wie test-ws-out.py)
+                        print(f"{Colors.OKGREEN}{payload}{Colors.ENDC}", end='', flush=True)
+                    else:
+                        # Finales Paket
+                        if session_id in session_buffer:
+                            # Streaming abgeschlossen
+                            session = session_buffer[session_id]
+                            full_text = ''.join(session['chunks']) + payload
+                            
+                            print(f"\n\n{Colors.OKGREEN}✓ TXT Output abgeschlossen!{Colors.ENDC}")
+                            print(f"  {Colors.OKCYAN}• Chunks:{Colors.ENDC} {session['chunk_count']}")
+                            print(f"  {Colors.OKCYAN}• Gesamtlänge:{Colors.ENDC} {len(full_text)} Zeichen")
+                            
+                            del session_buffer[session_id]
+                        else:
+                            # Normales finales Paket (nicht gestreamt)
+                            print(f"\n{Colors.OKGREEN}📝 TXT Output:{Colors.ENDC} {payload}")
+                    
+                    # Header zurücksetzen nach final
+                    if is_final:
+                        last_uso_header = None
+                else:
+                    # Unbekannte Binary-Daten
+                    print(f"{Colors.WARNING}← Binary-Daten (ohne Header){Colors.ENDC}")
                     
             elif isinstance(message, str):
-                # Text-Nachricht (Header oder normale Nachrichten)
+                # Text-Nachricht (Header, Payload oder Willkommensnachricht)
                 try:
                     data = json.loads(message)
                     
                     # Willkommensnachricht ignorieren
                     if data.get('type') == 'welcome' or 'connectionId' in data:
                         pass
+                    # USO Header (wird im nächsten Frame gefolgt vom Payload)
+                    elif 'id' in data and 'type' in data:
+                        last_uso_header = data  # Speichere Header für nächste Payload
+                        # Warte auf Payload (kommt im nächsten Frame)
                     else:
+                        # Normale Text-Nachricht
                         print(f"{Colors.OKCYAN}← Nachricht: {message[:100]}{Colors.ENDC}")
                 except json.JSONDecodeError:
-                    print(f"{Colors.WARNING}← Nachricht: {message[:100]}{Colors.ENDC}")
+                    # Kein JSON - könnte Text-Payload sein!
+                    if last_uso_header and last_uso_header.get('type') == 'text':
+                        # Text-Payload (als String!)
+                        payload = message
+                        is_final = last_uso_header.get('final', True)
+                        session_id = last_uso_header.get('id', 'unknown')
+                        
+                        # Streaming-Behandlung
+                        if not is_final:
+                            # Streaming-Chunk (Token-für-Token wie ChatGPT!)
+                            if session_id not in session_buffer:
+                                session_buffer[session_id] = {'chunks': [], 'chunk_count': 0}
+                                print(f"\n{Colors.OKGREEN}📝 TXT Output gestartet{Colors.ENDC}")
+                                print(f"{Colors.OKCYAN}→ Text:{Colors.ENDC} ", end='', flush=True)
+                            
+                            session = session_buffer[session_id]
+                            session['chunks'].append(payload)
+                            session['chunk_count'] += 1
+                            
+                            # Live-Anzeige: Nur der Text, kein JSON! (wie test-ws-out.py)
+                            print(f"{Colors.OKGREEN}{payload}{Colors.ENDC}", end='', flush=True)
+                        else:
+                            # Finales Paket
+                            if session_id in session_buffer:
+                                # Streaming abgeschlossen
+                                session = session_buffer[session_id]
+                                full_text = ''.join(session['chunks']) + payload
+                                
+                                print(f"\n\n{Colors.OKGREEN}✓ TXT Output abgeschlossen!{Colors.ENDC}")
+                                print(f"  {Colors.OKCYAN}• Chunks:{Colors.ENDC} {session['chunk_count']}")
+                                print(f"  {Colors.OKCYAN}• Gesamtlänge:{Colors.ENDC} {len(full_text)} Zeichen")
+                                
+                                del session_buffer[session_id]
+                            else:
+                                # Normales finales Paket (nicht gestreamt)
+                                print(f"\n{Colors.OKGREEN}📝 TXT Output:{Colors.ENDC} {payload}")
+                        
+                        # Header zurücksetzen nach final
+                        if is_final:
+                            last_uso_header = None
+                    else:
+                        print(f"{Colors.WARNING}← Nachricht: {message[:100]}{Colors.ENDC}")
                     
     except websockets.exceptions.ConnectionClosed:
         pass
@@ -430,7 +610,7 @@ def register_device_sync():
         data = json.dumps({
             'clientId': DEVICE_NAME,
             'name': DEVICE_NAME,
-            'capabilities': ['mic', 'speaker'],
+            'capabilities': DEVICE_CAPABILITIES,
             'metadata': {
                 'type': 'python-client',
                 'platform': sys.platform
@@ -506,8 +686,22 @@ async def device_client():
 
             print(f"{Colors.BOLD}{'─'*70}{Colors.ENDC}")
             print(f"{Colors.HEADER}✅ Device verbunden und bereit{Colors.ENDC}")
-            print(f"{Colors.HEADER}💡 Device '{DEVICE_NAME}' ist in Mic-Node auswählbar{Colors.ENDC}")
-            print(f"{Colors.HEADER}💡 Drücke Enter zum Starten/Stoppen der Aufnahme{Colors.ENDC}")
+            
+            # Zeige aktive Capabilities
+            cap_icons = {
+                'mic': 'Mic',
+                'speaker': 'Speaker',
+                'txt_input': 'Device TXT Input',
+                'txt_output': 'Device TXT Output'
+            }
+            active_caps = [cap_icons.get(cap, cap) for cap in DEVICE_CAPABILITIES]
+            print(f"{Colors.HEADER}💡 Device '{DEVICE_NAME}' verfügbar in: {', '.join(active_caps)} Nodes{Colors.ENDC}")
+            
+            # Zeige Bedienung basierend auf aktiven Capabilities
+            if 'mic' in DEVICE_CAPABILITIES:
+                print(f"{Colors.HEADER}💡 Drücke Enter zum Starten/Stoppen der Audio-Aufnahme{Colors.ENDC}")
+            if 'txt_input' in DEVICE_CAPABILITIES:
+                print(f"{Colors.HEADER}💡 Drücke 't' + Enter für Text-Eingabe{Colors.ENDC}")
             print(f"{Colors.HEADER}💡 Drücke 'q' + Enter zum Beenden{Colors.ENDC}")
             print(f"{Colors.BOLD}{'─'*70}{Colors.ENDC}\n")
 
@@ -518,32 +712,60 @@ async def device_client():
             # Starte Empfangs-Task im Hintergrund
             receive_task = asyncio.create_task(receive_messages(websocket, audio_streamer))
 
-            # Starte Send-Task im Hintergrund
+            # Starte Send-Task im Hintergrund (Audio)
             send_task = asyncio.create_task(send_audio_data(websocket, audio_streamer))
+            
+            # Starte Text-Send-Task im Hintergrund
+            send_text_task = asyncio.create_task(send_text_data(websocket, keyboard_input))
 
             # Hauptschleife für Keyboard-Input
             running = True
             while running:
                 await asyncio.sleep(0.1)
                 
+                # Hole Input aus der Queue
                 user_input = keyboard_input.get_input()
-                if user_input is not None:
-                    if user_input == 'q':
-                        print(f"{Colors.WARNING}👋 Beende Verbindung...{Colors.ENDC}")
-                        running = False
+                if user_input is None:
+                    continue
+                
+                # 'q' beendet IMMER das Programm (egal in welchem Modus)
+                if user_input.lower() == 'q':
+                    print(f"{Colors.WARNING}👋 Beende Verbindung...{Colors.ENDC}")
+                    running = False
+                    continue
+                
+                # Text-Modus aktiv - Input zurück in Queue legen damit send_text_data ihn bekommt
+                if keyboard_input.text_input_active:
+                    print(f"{Colors.OKCYAN}→ Lege Input zurück in Queue für Text-Modus: '{user_input}'{Colors.ENDC}")
+                    keyboard_input.input_queue.put(user_input)
+                    continue
+                
+                # Audio-Modus: Verarbeite Inputs
+                if user_input.lower() == 't':
+                    # Text-Modus aktivieren
+                    keyboard_input.text_input_active = True
+                    print(f"\n{Colors.OKCYAN}📝 Text-Modus aktiviert{Colors.ENDC}")
+                    print(f"{Colors.OKCYAN}   Gib Text ein und drücke Enter zum Senden{Colors.ENDC}")
+                    print(f"{Colors.OKCYAN}   'q' + Enter zum Beenden, 'a' + Enter für Audio-Modus{Colors.ENDC}\n")
+                else:
+                    # Enter-Taste gedrückt - Toggle Audio-Aufnahme
+                    if not audio_streamer.recording_active:
+                        audio_streamer.start_recording_session()
                     else:
-                        # Enter-Taste gedrückt - Toggle Aufnahme
-                        if not audio_streamer.recording_active:
-                            audio_streamer.start_recording_session()
-                        else:
-                            audio_streamer.stop_recording_session()
+                        audio_streamer.stop_recording_session()
 
             # Tasks beenden
             send_task.cancel()
+            send_text_task.cancel()
             receive_task.cancel()
             
             try:
                 await send_task
+            except asyncio.CancelledError:
+                pass
+                
+            try:
+                await send_text_task
             except asyncio.CancelledError:
                 pass
                 

@@ -21,11 +21,13 @@ export default function EventPanel({ events, isConnected, onClearEvents, flowId 
   const [filter, setFilter] = useState<FilterType>('all');
   const [isResizing, setIsResizing] = useState(false);
 
-  // Filter Events
-  const filteredEvents = events.filter((event) => {
-    if (filter === 'all') return true;
-    return event.uso.header.type === filter;
-  });
+  // Filter Events und sortiere neueste zuerst (bereits geschehen durch [event, ...prev], aber sicherstellen)
+  const filteredEvents = events
+    .filter((event) => {
+      if (filter === 'all') return true;
+      return event.uso.header.type === filter;
+    })
+    .sort((a, b) => b.timestamp - a.timestamp); // Neueste zuerst
 
   // Formatierung
   const formatTimestamp = (timestamp: number) => {

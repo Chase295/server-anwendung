@@ -11,6 +11,8 @@ import { SpeakerNode } from '../nodes/speaker.node';
 import { AINode } from '../nodes/ai.node';
 import { WSInNode } from '../nodes/wsIn.node';
 import { WSOutNode } from '../nodes/wsOut.node';
+import { DeviceTxtOutputNode } from '../nodes/device-txt-output.node';
+import { DeviceTxtInputNode } from '../nodes/device-txt-input.node';
 
 // Import Services
 import { VoskService } from '../services/vosk.service';
@@ -92,6 +94,25 @@ export class NodeFactory implements INodeFactory {
       },
       inputs: [],
       outputs: [{ name: 'audio', type: 'audio' }],
+    });
+
+    // Device TXT Input Node
+    this.registerNodeSchema({
+      type: 'device_txt_input',
+      displayName: 'Device TXT Input',
+      description: 'Empfängt Text von ESP32-Client',
+      category: 'input',
+      color: '#10B981',
+      config: {
+        deviceId: {
+          type: 'string',
+          label: 'Gerät',
+          description: 'ESP32-Client mit TXT Input',
+          required: true,
+        },
+      },
+      inputs: [],
+      outputs: [{ name: 'text', type: 'text' }],
     });
 
     // STT Node
@@ -182,6 +203,25 @@ export class NodeFactory implements INodeFactory {
         },
       },
       inputs: [{ name: 'audio', type: 'audio' }],
+      outputs: [],
+    });
+
+    // Device TXT Output Node
+    this.registerNodeSchema({
+      type: 'device_txt_output',
+      displayName: 'Device TXT Output',
+      description: 'Sendet Text an ESP32-Client zur Anzeige',
+      category: 'output',
+      color: '#10B981',
+      config: {
+        deviceId: {
+          type: 'string',
+          label: 'Gerät',
+          description: 'ESP32-Client mit TXT Output',
+          required: true,
+        },
+      },
+      inputs: [{ name: 'text', type: 'text' }],
       outputs: [],
     });
 
@@ -322,6 +362,9 @@ export class NodeFactory implements INodeFactory {
       case 'mic':
         return new MicNode(id, type, finalConfig);
       
+      case 'device_txt_input':
+        return new DeviceTxtInputNode(id, type, finalConfig);
+      
       case 'stt':
         return new STTNode(id, type, finalConfig, this.voskService);
       
@@ -330,6 +373,9 @@ export class NodeFactory implements INodeFactory {
       
       case 'speaker':
         return new SpeakerNode(id, type, finalConfig, this.wsGateway);
+      
+      case 'device_txt_output':
+        return new DeviceTxtOutputNode(id, type, finalConfig, this.wsGateway);
       
       case 'ai':
         return new AINode(id, type, finalConfig, this.flowiseService, this.flowiseServerModel);

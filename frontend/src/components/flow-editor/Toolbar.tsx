@@ -1,6 +1,6 @@
 'use client';
 
-import { Bug, Mic, Volume2, MessageSquare, Cpu, Wifi } from 'lucide-react';
+import { Bug, Mic, Volume2, MessageSquare, Cpu, Wifi, FileText } from 'lucide-react';
 
 interface ToolbarProps {
   onAddNode: (nodeType: string) => void;
@@ -9,10 +9,12 @@ interface ToolbarProps {
 const nodeTypes = [
   { type: 'debug', label: 'Debug', icon: Bug, color: 'gray' },
   { type: 'mic', label: 'Mikrofon', icon: Mic, color: 'blue' },
+  { type: 'device_txt_input', label: 'Device TXT In', icon: FileText, color: 'blue' },
   { type: 'stt', label: 'STT', icon: MessageSquare, color: 'green' },
   { type: 'ai', label: 'KI', icon: Cpu, color: 'purple' },
   { type: 'tts', label: 'TTS', icon: Volume2, color: 'orange' },
   { type: 'speaker', label: 'Lautsprecher', icon: Volume2, color: 'red' },
+  { type: 'device_txt_output', label: 'Device TXT Out', icon: FileText, color: 'green' },
   { type: 'ws_in', label: 'WS Input', icon: Wifi, color: 'indigo' },
   { type: 'ws_out', label: 'WS Output', icon: Wifi, color: 'indigo' },
 ];

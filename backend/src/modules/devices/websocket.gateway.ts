@@ -167,30 +167,92 @@ export class WebSocketGateway implements OnModuleInit, OnModuleDestroy {
    */
   private handleMessage(client: ClientConnection, data: WebSocket.Data) {
     try {
-      // Phase 1: Text-Frame = USO-Header
-      if (typeof data === 'string') {
-        const header = USOUtils.deserializeHeader(data);
-        
-        // Header validieren und speichern
-        client.lastUSOHeader = header;
-        
-        // WebSocket-Info zum Header hinzufügen
-        header.websocketInfo = {
-          connectionId: client.id,
-          clientIp: client.ws['_socket']?.remoteAddress || 'unknown',
-          connectedAt: client.connectedAt,
-        };
-
-        this.logger.logUSO('in', { header, payload: null }, { clientId: client.clientId });
-
-        // Wenn kein Binär-Payload erwartet wird (z.B. Control oder Text)
-        if (header.type !== 'audio' || header.final) {
-          const uso = { header, payload: '' };
-          this.eventEmitter.emit('uso:received', uso, client);
+      // Konvertiere Binär-Frames zu String, wenn möglich (Python websockets library sendet immer Binär!)
+      let stringData: string | null = null;
+      if (Buffer.isBuffer(data)) {
+        try {
+          // Versuche als UTF-8 String zu dekodieren
+          stringData = data.toString('utf8');
+        } catch (err) {
+          // Kein String, weiter als Binär behandeln
         }
+      } else if (typeof data === 'string') {
+        stringData = data;
       }
-      // Phase 2: Binär-Frame = Audio-Payload
-      else if (Buffer.isBuffer(data)) {
+
+      // Phase 1: Text-Frame
+      if (stringData !== null) {
+        // Prüfe ob bereits ein Header vorhanden ist (Text-Payload für Text-USO)
+        if (client.lastUSOHeader && client.lastUSOHeader.type === 'text') {
+          // Text-Payload empfangen
+          const uso = {
+            header: client.lastUSOHeader,
+            payload: stringData, // Text-Payload als String
+          };
+
+          this.logger.info('📝 Text payload received', {
+            clientId: client.clientId,
+            sessionId: client.lastUSOHeader.id,
+            payloadLength: stringData.length,
+            payloadPreview: stringData.substring(0, 100),
+          });
+
+          this.eventEmitter.emit('uso:received', uso, client);
+
+          // Header zurücksetzen wenn final
+          if (client.lastUSOHeader.final) {
+            this.logger.debug('Text-USO complete, clearing header', {
+              clientId: client.clientId,
+              sessionId: client.lastUSOHeader.id,
+            });
+            client.lastUSOHeader = null;
+          }
+          return;
+        }
+
+        // Versuche Header zu parsen
+        try {
+          const header = USOUtils.deserializeHeader(stringData);
+          
+          // Header validieren und speichern
+          client.lastUSOHeader = header;
+          
+          // WebSocket-Info zum Header hinzufügen
+          header.websocketInfo = {
+            connectionId: client.id,
+            clientIp: client.ws['_socket']?.remoteAddress || 'unknown',
+            connectedAt: client.connectedAt,
+          };
+
+          this.logger.logUSO('in', { header, payload: null }, { clientId: client.clientId });
+
+          // Wenn kein Payload erwartet wird (Control)
+          if (header.type === 'control') {
+            const uso = { header, payload: '' };
+            this.eventEmitter.emit('uso:received', uso, client);
+            client.lastUSOHeader = null;
+          }
+          // Text-USOs: Warte auf Payload im nächsten Frame
+          if (header.type === 'text') {
+            this.logger.info('📝 Text-USO header received, waiting for payload', {
+              clientId: client.clientId,
+              sessionId: header.id,
+              headerType: header.type,
+            });
+          }
+        } catch (err) {
+          // Nicht parsenbar als JSON
+          this.logger.debug('String message is not a valid USO header', {
+            clientId: client.clientId,
+            message: stringData.substring(0, 100),
+            error: err.message,
+          });
+        }
+        return; // WICHTIG: Early return für Text-Frames
+      }
+      
+      // Phase 2: Binär-Frame = Audio-Payload (nur wenn NICHT als Text dekodierbar!)
+      if (Buffer.isBuffer(data)) {
         if (!client.lastUSOHeader) {
           // RAW Audio Mode: Erstelle automatisch USO-Header (wie WS In Node)
           if (!client.rawAudioSessionId) {

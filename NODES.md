@@ -7,10 +7,12 @@ Diese Datei beschreibt alle verfügbaren Nodes im IoT & Voice Orchestrator.
 | Node | Typ | Input | Output | Beschreibung |
 |------|-----|-------|--------|--------------|
 | **Mikrofon** | Input | - | Audio | Empfängt Audio von ESP32-Client |
+| **Device TXT Input** | Input | - | Text | Empfängt Text von ESP32-Client |
 | **STT** | Processing | Audio | Text | Speech-to-Text (Vosk) |
 | **AI** | Processing | Text | Text | KI-Verarbeitung mit Flowise (Streaming) |
 | **TTS** | Processing | Text | Audio | Text-to-Speech (Piper) |
 | **Lautsprecher** | Output | Audio | - | Gibt Audio auf ESP32-Client wieder |
+| **Device TXT Output** | Output | Text | - | Sendet Text an ESP32-Client |
 | **WS-In** | Input | - | Any | WebSocket-Server (empfängt Daten) |
 | **WS-Out** | Output | Any | - | WebSocket-Client (sendet Daten) |
 | **Debug** | Utility | Any | - | Zeigt USO-Datenströme im Log |
@@ -351,6 +353,156 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 ```
+
+---
+
+## 📝 Device TXT Input Node (DeviceTxtInputNode)
+
+### Beschreibung
+Die Device TXT Input Node empfängt Text-Streams von einem ESP32-Client und leitet sie an die nächste Node im Flow weiter. Diese Node ist für Geräte mit `txt_input` Capability gedacht.
+
+### Konfiguration
+
+**Gerät** (erforderlich)
+- Typ: Dropdown
+- Beschreibung: Wählen Sie einen ESP32-Client mit txt_input-Fähigkeit
+- Hinweis: Nur verbundene Geräte werden angezeigt
+
+### Verhalten
+
+1. **Start:** Node registriert sich für Text-Streams vom konfigurierten Device
+2. **Process:**
+   - Akzeptiert nur USO-Frames mit `type: 'text'`
+   - Filtert nach `sourceId` (muss dem konfigurierten Device entsprechen)
+   - Leitet Text-USOs direkt weiter
+   - Sendet automatisch Debug-Events für alle empfangenen Texte
+3. **Stop:** Beendet aktive Sessions
+
+### USO-Transformation
+
+**Input:** Keine (erste Node im Flow)
+
+**Output:**
+```json
+{
+  "header": {
+    "id": "txt_python-voice-device_1234567890",
+    "type": "text",
+    "sourceId": "python-voice-device",
+    "timestamp": 1697123456789,
+    "final": true
+  },
+  "payload": "Hallo, wie geht es dir?"
+}
+```
+
+### ESP32-Integration
+
+Der ESP32-Client muss:
+1. Mit WebSocket verbunden sein
+2. Capability `txt_input` gemeldet haben
+3. Text im USO-Protokoll senden (Header + Payload)
+
+**Beispiel ESP32-Code:**
+```cpp
+// Text senden
+void sendText(const String& text) {
+  // Header senden
+  String header = "{\"id\":\"" + sessionId + "\",\"type\":\"text\",\"sourceId\":\"esp32_001\",\"timestamp\":" + String(millis()) + ",\"final\":true}";
+  webSocket.sendTXT(header);
+  
+  // Payload senden
+  webSocket.sendTXT(text);
+}
+```
+
+### Automatische Debug-Events
+
+Die Device TXT Input Node sendet automatisch Debug-Events für alle empfangenen Texte. Diese erscheinen im Event-Panel des Flow-Editors, **ohne dass eine zusätzliche Debug-Node benötigt wird**.
+
+---
+
+## 📤 Device TXT Output Node (DeviceTxtOutputNode)
+
+### Beschreibung
+Die Device TXT Output Node sendet Text-Streams an einen ESP32-Client zur Anzeige. Diese Node ist für Geräte mit `txt_output` Capability gedacht.
+
+### Konfiguration
+
+**Gerät** (erforderlich)
+- Typ: Dropdown
+- Beschreibung: Wählen Sie einen ESP32-Client mit txt_output-Fähigkeit
+- Hinweis: Nur verbundene Geräte werden angezeigt
+
+### Verhalten
+
+1. **Start:** Node wird gestartet
+2. **Process:**
+   - Akzeptiert nur USO mit `type: 'text'`
+   - Prüft ob Device verbunden ist
+   - Sendet Text-USO über WebSocket an Device
+   - Unterstützt Streaming (token-für-token bei AI-Antworten)
+3. **Stop:** Stoppt aktive Wiedergabe
+
+### USO-Transformation
+
+**Input:**
+```json
+{
+  "header": {
+    "type": "text",
+    ...
+  },
+  "payload": "Das Wetter ist heute sonnig."
+}
+```
+
+**Output:** Keine (letzte Node im Flow)
+
+### ESP32-Integration
+
+Der ESP32-Client muss:
+1. Mit WebSocket verbunden sein
+2. Capability `txt_output` gemeldet haben
+3. Text im USO-Protokoll empfangen können
+
+**Beispiel ESP32-Code:**
+```cpp
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_TEXT: {
+      DynamicJsonDocument doc(1024);
+      deserializeJson(doc, payload);
+      
+      if (doc["type"] == "text") {
+        awaitingTextPayload = true;
+        sessionId = doc["id"].as<String>();
+      }
+      break;
+    }
+    
+    case WStype_BIN: {
+      // Text-Payload empfangen
+      String text = String((char*)payload);
+      displayText(text); // Auf Display anzeigen
+      break;
+    }
+  }
+}
+```
+
+### Streaming-Unterstützung
+
+Die Node unterstützt **token-für-token Streaming** bei AI-Antworten:
+
+```
+AI Node → Device TXT Output
+  "Das"     → "Das"
+  " Wetter" → " Wetter"
+  " ist"    → " ist"
+```
+
+Der Text wird **live** auf dem ESP32-Display angezeigt, während die KI antwortet.
 
 ---
 

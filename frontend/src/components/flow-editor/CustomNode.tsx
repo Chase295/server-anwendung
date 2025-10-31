@@ -2,7 +2,7 @@
 
 import { memo, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { Bug, Mic, Volume2, MessageSquare, Cpu, Wifi } from 'lucide-react';
+import { Bug, Mic, Volume2, MessageSquare, Cpu, Wifi, FileText } from 'lucide-react';
 
 function CustomNode({ data, selected }: NodeProps) {
   const [isInputHovered, setIsInputHovered] = useState(false);
@@ -15,6 +15,8 @@ function CustomNode({ data, selected }: NodeProps) {
         return { icon: Bug, color: 'gray' };
       case 'mic':
         return { icon: Mic, color: 'blue' };
+      case 'device_txt_input':
+        return { icon: FileText, color: 'blue' };
       case 'stt':
         return { icon: MessageSquare, color: 'green' };
       case 'ai':
@@ -23,6 +25,8 @@ function CustomNode({ data, selected }: NodeProps) {
         return { icon: Volume2, color: 'orange' };
       case 'speaker':
         return { icon: Volume2, color: 'red' };
+      case 'device_txt_output':
+        return { icon: FileText, color: 'green' };
       case 'ws_in':
         return { icon: Wifi, color: 'indigo' };
       case 'ws_out':
@@ -39,6 +43,8 @@ function CustomNode({ data, selected }: NodeProps) {
         return { hasInput: true, hasOutput: false }; // Nur Input (Endpunkt)
       case 'mic':
         return { hasInput: false, hasOutput: true }; // Nur Output (Startpunkt)
+      case 'device_txt_input':
+        return { hasInput: false, hasOutput: true }; // Nur Output (Startpunkt)
       case 'stt':
         return { hasInput: true, hasOutput: true }; // Input und Output
       case 'ai':
@@ -46,6 +52,8 @@ function CustomNode({ data, selected }: NodeProps) {
       case 'tts':
         return { hasInput: true, hasOutput: true }; // Input und Output
       case 'speaker':
+        return { hasInput: true, hasOutput: false }; // Nur Input (Endpunkt)
+      case 'device_txt_output':
         return { hasInput: true, hasOutput: false }; // Nur Input (Endpunkt)
       case 'ws_in':
         return { hasInput: false, hasOutput: true }; // Nur Output (Startpunkt)

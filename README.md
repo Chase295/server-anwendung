@@ -49,6 +49,7 @@ Eine zentrale, visuelle Anwendung (ähnlich Node-RED) zur Orchestrierung von IoT
 
 **Datenquellen (nur Output):**
 - ✅ **Mikrofon Node:** Empfängt Audio von ESP32-Client → Output: Audio
+- ✅ **Device TXT Input Node:** Empfängt Text von ESP32-Client → Output: Text
 - ✅ **WebSocket In Node:** Empfängt Daten von externen WebSocket-Clients → Output: Audio/Text/Raw (konfigurierbar)
 
 **Datenverarbeitung (Input + Output):**
@@ -61,6 +62,7 @@ Eine zentrale, visuelle Anwendung (ähnlich Node-RED) zur Orchestrierung von IoT
 
 **Datenziele (nur Input):**
 - ✅ **Speaker Node:** Sendet Audio an ESP32-Client ← Input: Audio
+- ✅ **Device TXT Output Node:** Sendet Text an ESP32-Client ← Input: Text
 - ✅ **Debug Node:** Zeigt USO-Datenströme im Log an ← Input: Any (akzeptiert alle Typen)
 - ✅ **WebSocket Out Node:** Sendet Daten an externe WebSocket-Server ← Input: Audio/Text/Raw (konfigurierbar)
   - **Content-Only Modus** für minimalen Overhead (perfekt für Streaming!)
